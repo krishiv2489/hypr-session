@@ -31,6 +31,16 @@ def _addresses_for_class(wm_class: str) -> set[str]:
     except RuntimeError:
         return set()
 
+def _get_client_info(address: str) -> dict | None:
+    try:
+        clients: list[dict] = run_hyprctl("clients")  # type: ignore[assignment]
+        for c in clients:
+            if c.get("address") == address:
+                return c
+    except RuntimeError:
+        pass
+    return None
+
 def _wait_for_new_address(
     wm_class: str, before: set[str], timeout: float, poll_interval: float = 0.3
 ) -> str | None:
@@ -160,15 +170,30 @@ def restore_session(
         # Wait briefly for the window to be fully mapped before moving it
         time.sleep(0.4)
 
-        subprocess.run([
-            "hyprctl", "dispatch", "movetoworkspacesilent",
-            f"{window.workspace_id},address:{new_address}"
-        ], check=False)
+        client_info = _get_client_info(new_address)
+        if not client_info:
+            continue
+
+        if client_info.get("workspace", {}).get("id") != window.workspace_id:
+            subprocess.run([
+                "hyprctl", "dispatch", "movetoworkspacesilent",
+                f"{window.workspace_id},address:{new_address}"
+            ], check=False)
 
         if window.floating and cfg.restore_floating:
-            subprocess.run(["hyprctl", "dispatch", "setfloating", f"address:{new_address}"], check=False)
-            subprocess.run(["hyprctl", "dispatch", "movewindowpixel", f"exact {window.at[0]} {window.at[1]},address:{new_address}"], check=False)
-            subprocess.run(["hyprctl", "dispatch", "resizewindowpixel", f"exact {window.size[0]} {window.size[1]},address:{new_address}"], check=False)
+            if not client_info.get("floating", False):
+                subprocess.run(["hyprctl", "dispatch", "setfloating", f"address:{new_address}"], check=False)
+            
+            curr_x, curr_y = client_info.get("at", [0, 0])
+            curr_w, curr_h = client_info.get("size", [0, 0])
+            target_x, target_y = window.at
+            target_w, target_h = window.size
+            
+            if abs(curr_x - target_x) > 5 or abs(curr_y - target_y) > 5:
+                subprocess.run(["hyprctl", "dispatch", "movewindowpixel", f"exact {target_x} {target_y},address:{new_address}"], check=False)
+            
+            if abs(curr_w - target_w) > 5 or abs(curr_h - target_h) > 5:
+                subprocess.run(["hyprctl", "dispatch", "resizewindowpixel", f"exact {target_w} {target_h},address:{new_address}"], check=False)
 
         log.info("Placed %s at %s on workspace %d", window.initial_class, new_address, window.workspace_id)
         yield window, "OK"

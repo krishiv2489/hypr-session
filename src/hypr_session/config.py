@@ -56,6 +56,18 @@ DEFAULT_IGNORE_CLASSES = {
     "hypr-session",
     "rofi",
     "wofi",
+    "quickshell",
+    "hypridle",
+    "hyprlock",
+    "swayidle",
+    "swaylock",
+    "wlogout",
+    "ags",
+    "eww",
+    "sddm-greeter-qt6",
+    "xdg-desktop-portal-hyprland",
+    "xdg-desktop-portal",
+    "antigravity",
 }
 
 DEFAULT_CONTENT_TYPE_IGNORE = {
