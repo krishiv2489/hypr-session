@@ -6,8 +6,8 @@ No external dependencies, no mocking needed — models are pure Python.
 """
 
 import pytest
-from hypr_session.models import FullscreenState, Session, WindowEntry
 
+from hypr_session.models import FullscreenState, Session, WindowEntry
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -16,20 +16,20 @@ from hypr_session.models import FullscreenState, Session, WindowEntry
 
 def make_window(**overrides) -> WindowEntry:
     """Return a WindowEntry with sane defaults, overriding any given fields."""
-    defaults = dict(
-        address="0x55737f169ea0",
-        initial_class="firefox",
-        cmd="firefox",
-        workspace_id=1,
-        monitor=0,
-        floating=False,
-        at=(6, 62),
-        size=(1908, 1132),
-        fullscreen=FullscreenState.NONE,
-        pinned=False,
-        focus_history_id=1,
-        cwd=None,
-    )
+    defaults = {
+        "address": "0x55737f169ea0",
+        "initial_class": "firefox",
+        "cmd": "firefox",
+        "workspace_id": 1,
+        "monitor": 0,
+        "floating": False,
+        "at": (6, 62),
+        "size": (1908, 1132),
+        "fullscreen": FullscreenState.NONE,
+        "pinned": False,
+        "focus_history_id": 1,
+        "cwd": None,
+    }
     defaults.update(overrides)
     return WindowEntry(**defaults)
 

@@ -3,11 +3,11 @@ test_restore.py — Unit tests for restore.py dispatch rule building.
 """
 
 from typing import Any
-import pytest
 
 from hypr_session.config import HyprSessionConfig
 from hypr_session.models import FullscreenState, WindowEntry
-from hypr_session.restore import _build_dispatch_arg, _build_cwd_cmd
+from hypr_session.restore import _build_cwd_cmd, _build_dispatch_arg
+
 
 def make_cfg(**overrides: Any) -> HyprSessionConfig:
     cfg = HyprSessionConfig()
@@ -88,7 +88,8 @@ class TestBuildDispatchArgFloating:
 class TestBuildCwdCmd:
     def test_kitty_uses_directory_flag(self, tmp_path):
         w = make_window(initial_class="kitty", cmd="kitty", cwd=str(tmp_path))
-        cmd = _build_cwd_cmd(w)
+        cfg = make_cfg(restore_cwd=True)
+        cmd = _build_cwd_cmd(w, cfg)
         assert "--directory" in cmd
         assert str(tmp_path) in cmd
 
@@ -96,5 +97,13 @@ class TestBuildCwdCmd:
         import tempfile
         with tempfile.TemporaryDirectory(prefix="my dir ") as tmpdir:
             w = make_window(initial_class="kitty", cmd="kitty", cwd=tmpdir)
-            cmd = _build_cwd_cmd(w)
+            cfg = make_cfg(restore_cwd=True)
+            cmd = _build_cwd_cmd(w, cfg)
             assert "'" in cmd or '"' in cmd
+
+    def test_cwd_skipped_when_restore_cwd_false(self, tmp_path):
+        w = make_window(initial_class="kitty", cmd="kitty", cwd=str(tmp_path))
+        cfg = make_cfg(restore_cwd=False)
+        cmd = _build_cwd_cmd(w, cfg)
+        assert "--directory" not in cmd
+        assert cmd == "kitty"

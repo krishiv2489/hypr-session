@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 
 
@@ -20,9 +21,24 @@ def run_hyprctl(command: str) -> dict | list:
             check=True,
         )
         return json.loads(result.stdout)
-    except (subprocess.CalledProcessError, json.JSONDecodeError):
-        # Fallback to prevent crashes if the IPC socket is unresponsive
-        return [] if command in ("clients", "workspaces") else {}
+    except FileNotFoundError as e:
+        raise RuntimeError("hyprctl not found. Are you running Hyprland?") from e
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Hyprland IPC failed: {e.stderr}") from e
+    except json.JSONDecodeError as e:
+        raise RuntimeError("Invalid JSON received from hyprctl") from e
+
+
+def wait_for_hyprland(timeout: float = 10.0) -> bool:
+    """Wait for Hyprland to become ready by polling the IPC socket."""
+    start = time.monotonic()
+    while time.monotonic() - start < timeout:
+        try:
+            run_hyprctl("monitors")
+            return True
+        except RuntimeError:
+            time.sleep(0.2)
+    return False
 
 
 def is_hyprland_running() -> bool:
@@ -84,13 +100,13 @@ def get_terminal_cwd(terminal_pid: int) -> str | None:
             and Path(f"/proc/{p.name}/status").exists()
             and _read_ppid(int(p.name)) == terminal_pid
         ]
-        
+
         if not children:
             return None
-            
+
         # Take the last child (most recently spawned shell/process)
         child_pid = children[-1]
-        
+
         # /proc/<pid>/cwd is a symlink to the actual directory
         return str(Path(f"/proc/{child_pid}/cwd").resolve())
     except (PermissionError, FileNotFoundError):

@@ -6,19 +6,13 @@ and electron detection. Uses temporary directories for .desktop files
 so tests don't depend on installed apps.
 """
 
-import json
-import tempfile
-from pathlib import Path
-from unittest.mock import patch
 
-import pytest
 
 from hypr_session.mapping import (
     _extract_field,
     _parse_exec_command,
     resolve_command,
 )
-
 
 # ---------------------------------------------------------------------------
 # _extract_field

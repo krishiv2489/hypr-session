@@ -12,10 +12,20 @@ try:
 except ImportError:
     pass
 
+import os
+
 CONFIG_DIR = Path.home() / ".config/hypr-session"
 CONFIG_FILE = CONFIG_DIR / "config.toml"
 DATA_DIR = Path.home() / ".local/share/hypr-session"
-PAUSE_LOCK = DATA_DIR / ".paused"
+BACKUPS_DIR = DATA_DIR / "backups"
+
+_run_user_dir = Path(f"/run/user/{os.getuid()}")
+if _run_user_dir.exists():
+    RUNTIME_PAUSE_LOCK = _run_user_dir / "hypr-session.paused"
+else:
+    RUNTIME_PAUSE_LOCK = Path(f"/tmp/hypr-session-{os.getuid()}.paused")
+
+PERMANENT_PAUSE_LOCK = CONFIG_DIR / "disabled"
 
 DEFAULT_IGNORE_CLASSES = {
     "mpv",
@@ -38,13 +48,14 @@ DEFAULT_CONTENT_TYPE_IGNORE = {
     "game",
 }
 
-TERMINAL_CWD_FLAGS = {
-    "kitty": ("directory", "--directory"),
-    "alacritty": ("directory", "--working-directory"),
-    "foot": ("directory", "--working-directory"),
+TERMINAL_CWD_FLAGS: dict[str, tuple[str, str]] = {
+    "kitty": ("separate", "--directory"),
+    "alacritty": ("separate", "--working-directory"),
+    "foot": ("separate", "--working-directory"),
     "wezterm": ("subcommand", "start --cwd"),
-    "gnome-terminal": ("directory", "--working-directory"),
-    "konsole": ("directory", "--working-directory"),
+    "gnome-terminal": ("separate", "--working-directory"),
+    "konsole": ("separate", "--working-directory"),
+    "ghostty": ("separate", "--working-directory"),
 }
 
 TERMINAL_CLASSES = set(TERMINAL_CWD_FLAGS.keys())
@@ -78,7 +89,7 @@ restore_cwd = true
 [ignore]
 # Window classes to completely ignore during save
 classes = [
-    "mpv", "vlc", "celluloid", 
+    "mpv", "vlc", "celluloid",
     "waybar", "dunst", "hyprpaper", "swaybg", "swayosd", "rofi", "wofi",
     "polkit-gnome-authentication-agent-1", "lxqt-policykit-agent",
     "hypr-session"
@@ -99,7 +110,7 @@ def load_config() -> HyprSessionConfig:
         return HyprSessionConfig()
 
     cfg = HyprSessionConfig()
-    
+
     if "general" in data:
         gen = data["general"]
         cfg.restore_delay_seconds = float(gen.get("restore_delay_seconds", cfg.restore_delay_seconds))

@@ -8,12 +8,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hypr-session"
-version = "0.1.0"
+version = "1.0.0"
 description = "Session save and restore for the Hyprland Wayland compositor"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
-    { name = "Krishiv", email = "your@email.com" }
+    { name = "Krishiv Patel" }
 ]
 keywords = [
     "hyprland",
@@ -25,13 +25,14 @@ keywords = [
     "tiling",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Environment :: X11 Applications",
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
     "License :: OSI Approved :: MIT License",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Desktop Environment",
     "Topic :: System",
     "Topic :: Utilities",
@@ -51,9 +52,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/hypr-session"
-Repository = "https://github.com/yourusername/hypr-session"
-Issues = "https://github.com/yourusername/hypr-session/issues"
+Homepage = "https://github.com/krishiv2489/hypr-session"
+Repository = "https://github.com/krishiv2489/hypr-session"
+Issues = "https://github.com/krishiv2489/hypr-session/issues"
 
 [project.scripts]
 hypr-session = "hypr_session.cli:main"
@@ -105,4 +106,5 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
 addopts = "-v --tb=short"

@@ -4,18 +4,20 @@ restore.py — Session restore logic.
 
 from __future__ import annotations
 
+import logging
 import shlex
 import shutil
 import subprocess
 import time
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator
 
-from .config import TERMINAL_CWD_FLAGS, load_config
+from .config import TERMINAL_CWD_FLAGS, HyprSessionConfig, load_config
 from .models import FullscreenState, WindowEntry
 from .session import load_session
 from .utils import run_hyprctl
 
+log = logging.getLogger(__name__)
 def _addresses_for_class(wm_class: str) -> set[str]:
     try:
         clients: list[dict] = run_hyprctl("clients")  # type: ignore[assignment]
@@ -41,9 +43,10 @@ def _wait_for_new_address(
         time.sleep(poll_interval)
     return None
 
-def _build_cwd_cmd(window: WindowEntry) -> str:
+def _build_cwd_cmd(window: WindowEntry, cfg: HyprSessionConfig) -> str:
+    """Append the CWD flag to the launch command for terminal emulators."""
     cmd = window.cmd
-    if not window.cwd or not Path(window.cwd).is_dir():
+    if not cfg.restore_cwd or not window.cwd or not Path(window.cwd).is_dir():
         return cmd
 
     class_lower = window.initial_class.lower()
@@ -63,7 +66,8 @@ def _build_cwd_cmd(window: WindowEntry) -> str:
         return f"{cmd} {flag} {quoted_cwd}"
     return cmd
 
-def _build_dispatch_arg(window: WindowEntry, cfg) -> str:
+def _build_dispatch_arg(window: WindowEntry, cfg: HyprSessionConfig) -> str:
+    """Build the Hyprland dispatch exec argument with window rules."""
     rules: list[str] = [f"workspace {window.workspace_id} silent"]
 
     if window.pinned:
@@ -84,7 +88,7 @@ def _build_dispatch_arg(window: WindowEntry, cfg) -> str:
             rules.append("maximize")
 
     rule_string = "; ".join(rules)
-    cmd = _build_cwd_cmd(window)
+    cmd = _build_cwd_cmd(window, cfg)
 
     return f"[{rule_string}] {cmd}"
 
@@ -101,9 +105,10 @@ def restore_session(profile: str | None = None, dry_run: bool = False) -> Genera
     if cfg.restore_delay_seconds > 0 and not dry_run:
         time.sleep(cfg.restore_delay_seconds)
 
-    for window in session.windows:
+    for i, window in enumerate(session.windows):
         executable = window.cmd.split()[0]
         if not shutil.which(executable):
+            log.warning("Skipping %s: '%s' not found in PATH", window.initial_class, executable)
             yield window, "MISSING"
             continue
 
@@ -113,6 +118,9 @@ def restore_session(profile: str | None = None, dry_run: bool = False) -> Genera
 
         dispatch_arg = _build_dispatch_arg(window, cfg)
         before = _addresses_for_class(window.initial_class)
+
+        log.info("Launching %s on workspace %d", window.initial_class, window.workspace_id)
+        log.debug("Dispatch arg: %s", dispatch_arg)
 
         # 1. Fire Atomic Rule
         subprocess.run(
@@ -127,14 +135,16 @@ def restore_session(profile: str | None = None, dry_run: bool = False) -> Genera
         )
 
         if not new_address:
+            log.warning("Timed out waiting for %s window", window.initial_class)
             yield window, "TIMEOUT"
             continue
 
         # 3. FORCE PLACEMENT (DBus Countermeasure)
+        # Wait briefly for the window to be fully mapped before moving it
         time.sleep(0.4)
 
         subprocess.run([
-            "hyprctl", "dispatch", "movetoworkspacesilent", 
+            "hyprctl", "dispatch", "movetoworkspacesilent",
             f"{window.workspace_id},address:{new_address}"
         ], check=False)
 
@@ -143,4 +153,9 @@ def restore_session(profile: str | None = None, dry_run: bool = False) -> Genera
             subprocess.run(["hyprctl", "dispatch", "movewindowpixel", f"exact {window.at[0]} {window.at[1]},address:{new_address}"], check=False)
             subprocess.run(["hyprctl", "dispatch", "resizewindowpixel", f"exact {window.size[0]} {window.size[1]},address:{new_address}"], check=False)
 
+        log.info("Placed %s at %s on workspace %d", window.initial_class, new_address, window.workspace_id)
         yield window, "OK"
+
+        # Inter-launch delay to avoid IPC flooding
+        if i < len(session.windows) - 1:
+            time.sleep(0.3)

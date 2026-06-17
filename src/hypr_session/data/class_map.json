@@ -1,6 +1,4 @@
 {
-  "_comment": "Maps Hyprland window class (lowercase) to launch command. Used as Stage 3 fallback.",
-
   "code-url-handler":          "code",
   "code-oss":                  "code-oss",
   "vscodium":                  "codium",
@@ -70,5 +68,29 @@
   "org.kde.konsole":           "konsole",
   "org.kde.spectacle":         "spectacle",
   "org.kde.ark":               "ark",
-  "org.kde.kcalc":             "kcalc"
+  "org.kde.kcalc":             "kcalc",
+
+  "zen-browser":               "zen-browser",
+  "zen":                       "zen-browser",
+  "floorp":                    "floorp",
+  "brave-browser":             "brave",
+  "vivaldi-stable":            "vivaldi-stable",
+
+  "firefox":                   "firefox",
+  "firefox-esr":               "firefox-esr",
+  "librewolf":                 "librewolf",
+  "chromium-browser":          "chromium",
+  "google-chrome":             "google-chrome-stable",
+  "microsoft-edge-stable":     "microsoft-edge-stable",
+
+  "ghostty":                   "ghostty",
+  "rio":                       "rio",
+  "org.wezfurlong.wezterm":    "wezterm",
+
+  "org.signal.signal":         "signal-desktop",
+  "signal":                    "signal-desktop",
+  "element":                   "element-desktop",
+
+  "zathura":                   "zathura",
+  "org.pwmt.zathura":          "zathura"
 }

@@ -6,10 +6,35 @@ echo -e "\033[1;34m=======================================\033[0m"
 echo -e "\033[1;36m    Installing hypr-session...         \033[0m"
 echo -e "\033[1;34m=======================================\033[0m"
 
-# 1. Verify pipx is installed
+# 1. Verify hyprctl is installed
+if ! command -v hyprctl &> /dev/null; then
+    echo -e "\033[1;31m[ERROR] hyprctl is not found.\033[0m"
+    echo "This tool requires Hyprland to be installed and running."
+    exit 1
+fi
+
+# 2. Verify pipx is installed
 if ! command -v pipx &> /dev/null; then
     echo -e "\033[1;31m[ERROR] pipx is not installed.\033[0m"
-    echo "Please install it first (e.g., 'sudo pacman -S python-pipx' or 'sudo apt install pipx')"
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        case $ID in
+            arch|manjaro|endeavouros|artix)
+                echo "Please install it: sudo pacman -S python-pipx"
+                ;;
+            ubuntu|debian|pop)
+                echo "Please install it: sudo apt install pipx"
+                ;;
+            fedora)
+                echo "Please install it: sudo dnf install pipx"
+                ;;
+            *)
+                echo "Please install 'pipx' using your package manager."
+                ;;
+        esac
+    else
+        echo "Please install 'pipx' using your package manager."
+    fi
     exit 1
 fi
 

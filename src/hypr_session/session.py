@@ -20,21 +20,38 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import time
 from pathlib import Path
 
 from .config import (
+    BACKUPS_DIR,
     DATA_DIR,
     TERMINAL_CLASSES,
     load_config,
 )
 from .mapping import build_desktop_map, load_bundled_map, resolve_command
-from .models import FullscreenState, Session, WindowEntry
+from .models import Session, WindowEntry
 from .utils import (
     get_ancestor_pids,
     get_exe_path,
     get_terminal_cwd,
     run_hyprctl,
 )
+
+
+def _extract_fullscreen(raw: object) -> int:
+    """Extract fullscreen int from Hyprland's field.
+
+    Hyprland v0.40+ returns ``{"isFullscreen": bool, "current": int}``.
+    Older versions return a plain integer.  Handle both gracefully.
+    """
+    if isinstance(raw, dict):
+        return int(raw.get("current", raw.get("isFullscreen", 0)))
+    try:
+        return int(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
 
 
 # ---------------------------------------------------------------------------
@@ -61,13 +78,9 @@ def get_session_path(profile: str | None = None) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def save_session(profile: str | None = None) -> tuple[Path, Session]:
+def get_current_session_windows() -> list[WindowEntry]:
     """
-    Capture the current Hyprland session and write it to disk.
-
-    Returns (path, session) so the caller can report what was saved.
-
-    Raises RuntimeError if hyprctl fails (Hyprland is not running).
+    Query Hyprland and return a list of WindowEntry objects representing the active session.
     """
     cfg = load_config()
 
@@ -158,7 +171,7 @@ def save_session(profile: str | None = None) -> tuple[Path, Session]:
             floating=client.get("floating", False),
             at=(int(at_raw[0]), int(at_raw[1])),
             size=(int(size_raw[0]), int(size_raw[1])),
-            fullscreen=client.get("fullscreen", FullscreenState.NONE),
+            fullscreen=_extract_fullscreen(client.get("fullscreen", 0)),
             pinned=client.get("pinned", False),
             focus_history_id=client.get("focusHistoryID", 0),
             cwd=cwd,
@@ -179,9 +192,34 @@ def save_session(profile: str | None = None) -> tuple[Path, Session]:
     #
     # This mirrors the original tiling insertion order.
     windows.sort(key=lambda w: w.focus_history_id, reverse=True)
+    return windows
+
+def save_session(profile: str | None = None, force_empty: bool = False) -> tuple[Path, Session]:
+    """
+    Capture the current Hyprland session and write it to disk.
+
+    Returns (path, session) so the caller can report what was saved.
+
+    Raises RuntimeError if hyprctl fails or if trying to save an empty session without force_empty.
+    """
+    windows = get_current_session_windows()
+
+    if not windows and not force_empty:
+        raise RuntimeError("No windows detected. Refusing to save an empty session.")
 
     session = Session(windows=windows)
     path = get_session_path(profile)
+
+    if path.exists():
+        BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
+        backup_path = BACKUPS_DIR / f"{path.name}.{int(time.time())}.bak"
+        shutil.copy2(path, backup_path)
+
+        # Rotate backups (keep last 10 per profile)
+        backups = sorted(BACKUPS_DIR.glob(f"{path.name}.*.bak"), key=lambda p: p.stat().st_mtime)
+        while len(backups) > 10:
+            backups.pop(0).unlink(missing_ok=True)
+
     path.write_text(json.dumps(session.to_dict(), indent=2))
 
     return path, session
@@ -271,7 +309,7 @@ def clear_all_sessions() -> int:
     Returns the number of files deleted.
     """
     count = 0
-    for label, path, _ in list_sessions():
+    for _label, path, _ in list_sessions():
         path.unlink(missing_ok=True)
         count += 1
     return count

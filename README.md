@@ -408,20 +408,32 @@ Unix philosophy.
 
 # Roadmap
 
-## v1.x
+## v1.0 ✅
 
-- [ ] Named profiles
+- [x] Named profiles
 
 ```bash
-hypr-session save gaming
-hypr-session restore coding
+hypr-session save --profile gaming
+hypr-session restore --profile coding
 ```
 
-- [ ] Hyprland groups support
+- [x] DBus-resistant restore engine
+
+- [x] Terminal CWD restoration
+
+- [x] Rich CLI with progress bars
+
+- [x] Dry-run mode
+
+- [x] Auto-hook installer (`install-hooks`)
+
+## v1.x
+
+- [ ] Hyprland groups / tabbed layout support
 
 - [ ] Special workspace restoration
 
-- [ ] Socket event listener
+- [ ] Socket event listener for auto-save
 
 - [ ] AUR package
 
