@@ -114,12 +114,14 @@ def restore_session(profile: str | None = None, dry_run: bool = False) -> Genera
         dispatch_arg = _build_dispatch_arg(window, cfg)
         before = _addresses_for_class(window.initial_class)
 
+        # 1. Fire Atomic Rule
         subprocess.run(
             ["hyprctl", "dispatch", "exec", dispatch_arg],
             capture_output=True,
             check=False,
         )
 
+        # 2. Wait for rendering
         new_address = _wait_for_new_address(
             window.initial_class, before, cfg.window_wait_timeout
         )
@@ -128,6 +130,7 @@ def restore_session(profile: str | None = None, dry_run: bool = False) -> Genera
             yield window, "TIMEOUT"
             continue
 
+        # 3. FORCE PLACEMENT (DBus Countermeasure)
         time.sleep(0.4)
 
         subprocess.run([

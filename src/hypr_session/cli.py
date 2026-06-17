@@ -1,19 +1,20 @@
 """
-cli.py — Command-line interface for hypr-session.
+cli.py — Command-line interface for hypr-session with Rich integration.
 """
 
 from __future__ import annotations
-import sys
-import typer
+
 from pathlib import Path
 from typing import Optional
 
+import typer
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.table import Table
 
 from .config import (
-    CONFIG_DIR, CONFIG_FILE, DATA_DIR, PAUSE_LOCK,
+    CONFIG_FILE, DATA_DIR, PAUSE_LOCK,
     ensure_config_dir, load_config,
 )
 from .restore import restore_session as _restore
@@ -25,7 +26,7 @@ from .utils import is_hyprland_running
 
 app = typer.Typer(
     name="hypr-session",
-    help="Session save and restore for the Hyprland Wayland compositor.",
+    help="Premium session save and restore for the Hyprland compositor.",
     no_args_is_help=True,
     pretty_exceptions_enable=False,
 )
@@ -33,12 +34,12 @@ console = Console()
 
 def _require_hyprland() -> None:
     if not is_hyprland_running():
-        console.print("[bold red]Error:[/bold red] HYPRLAND_INSTANCE_SIGNATURE is not set.\nThis must be run inside a Hyprland session.")
+        console.print("[bold red]Error:[/bold red] HYPRLAND_INSTANCE_SIGNATURE is not set.")
         raise typer.Exit(1)
 
 def _check_paused() -> bool:
     if PAUSE_LOCK.exists():
-        console.print("[bold yellow]Note:[/bold yellow] Session auto-save is paused. Run 'hypr-session resume' to re-enable.")
+        console.print("[bold yellow]Note:[/bold yellow] Auto-save is paused.")
         return True
     return False
 
@@ -47,7 +48,7 @@ def save(
     profile: Optional[str] = typer.Option(None, "--profile", "-p", help="Save under a named profile."),
     force: bool = typer.Option(False, "--force", "-f", help="Save even if paused."),
 ) -> None:
-    """Save the current Hyprland session to disk."""
+    """Snapshot the current Hyprland session to disk."""
     _require_hyprland()
     if not force and _check_paused():
         raise typer.Exit(0)
@@ -59,17 +60,53 @@ def save(
         raise typer.Exit(1)
 
     label = profile or "default"
-    console.print(f"[bold green]✅ Saved session '{label}':[/bold green] {len(session.windows)} window(s) → {path}")
+    console.print(f"[bold green]✅ Saved '{label}':[/bold green] {len(session.windows)} window(s) → {path}")
 
 @app.command()
-def restore(profile: Optional[str] = typer.Option(None, "--profile", "-p", help="Restore a specific profile.")) -> None:
+def restore(
+    profile: Optional[str] = typer.Option(None, "--profile", "-p", help="Restore a specific profile."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be restored without launching apps.")
+) -> None:
     """Restore the saved Hyprland session."""
     _require_hyprland()
-    try:
-        restored, failed = _restore(profile)
-    except RuntimeError as exc:
-        console.print(f"[bold red]Error:[/bold red] {exc}")
+    session = load_session(profile)
+    label = profile or "default"
+
+    if session is None or not session.windows:
+        console.print(f"[bold yellow]⚠️ Session '{label}' is empty or missing.[/bold yellow]")
         raise typer.Exit(1)
+
+    console.print(f"\n[bold blue]🚀 Restoring '{label}' {'(DRY RUN)' if dry_run else ''}[/bold blue]")
+    
+    restored, failed, missing = 0, 0, 0
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        console=console,
+        transient=False,
+    ) as progress:
+        task = progress.add_task("Restoring windows...", total=len(session.windows))
+
+        for window, status in _restore(profile, dry_run=dry_run):
+            if status == "OK":
+                progress.console.print(f"[green]✔[/green] {window.initial_class} → ws:{window.workspace_id}")
+                restored += 1
+            elif status == "DRY_RUN":
+                progress.console.print(f"[cyan]~[/cyan] {window.initial_class} → ws:{window.workspace_id} (Skipped)")
+                restored += 1
+            elif status == "MISSING":
+                progress.console.print(f"[yellow]⚠[/yellow] {window.initial_class} → '{window.cmd.split()[0]}' not found in PATH")
+                missing += 1
+            elif status == "TIMEOUT":
+                progress.console.print(f"[red]✖[/red] {window.initial_class} → Timed out waiting for window.")
+                failed += 1
+            
+            progress.advance(task)
+
+    console.print(f"\n[bold]Summary:[/bold] {restored} Restored, {missing} Missing, {failed} Failed.\n")
 
 @app.command(name="list")
 def list_cmd() -> None:
@@ -93,20 +130,47 @@ def list_cmd() -> None:
     console.print(table)
 
 @app.command()
-def clear(
-    profile: Optional[str] = typer.Option(None, "--profile", "-p", help="Clear a specific profile."),
-    all_profiles: bool = typer.Option(False, "--all", "-a", help="Clear ALL saved sessions."),
-) -> None:
+def status() -> None:
+    """Show the current status, configuration, and saved sessions."""
+    paused = PAUSE_LOCK.exists()
+    cfg = load_config()
+    sessions = list_sessions()
+
+    status_text = (
+        f"[bold]Auto-save:[/bold] {'[bold red]PAUSED ⚠[/bold red]' if paused else '[bold green]ACTIVE ✅[/bold green]'}\n"
+        f"[bold]Config:[/bold]    {CONFIG_FILE}\n"
+        f"[bold]Data dir:[/bold]  {DATA_DIR}"
+    )
+    console.print(Panel(status_text, title="System Status", border_style="blue", expand=False))
+
+    if sessions:
+        table = Table(show_header=True, header_style="bold cyan")
+        table.add_column("WS", style="dim", width=3)
+        table.add_column("App Class", style="bold green")
+        table.add_column("Command", style="yellow")
+        table.add_column("State", style="magenta")
+
+        for label, path, session in sessions:
+            console.print(f"\n[bold blue]Profile:[/bold blue] {label} [dim](Saved: {session.timestamp[:19] if session else 'Unknown'})[/dim]")
+            if session:
+                for w in session.windows:
+                    state = []
+                    if w.floating: state.append("float")
+                    if w.fullscreen == 2: state.append("full")
+                    elif w.fullscreen == 1: state.append("max")
+                    if w.cwd: state.append("cwd")
+                    table.add_row(str(w.workspace_id), w.initial_class, w.cmd, ",".join(state) if state else "-")
+        console.print(table)
+    else:
+        console.print("[dim]No sessions saved yet.[/dim]")
+
+@app.command()
+def clear(profile: Optional[str] = typer.Option(None, "--profile", "-p"), all_profiles: bool = typer.Option(False, "--all", "-a")) -> None:
     """Delete one or all saved sessions."""
     if all_profiles:
-        count = clear_all_sessions()
-        console.print(f"[bold green]Cleared {count} session(s).[/bold green]")
-        return
-    label = profile or "default"
-    if clear_session(profile):
-        console.print(f"[bold green]Session '{label}' cleared.[/bold green]")
+        console.print(f"[bold green]Cleared {clear_all_sessions()} session(s).[/bold green]")
     else:
-        console.print(f"[bold yellow]No session found for profile '{label}'.[/bold yellow]")
+        console.print(f"[bold green]Session '{profile or 'default'}' cleared.[/bold green]" if clear_session(profile) else "[bold yellow]No session found.[/bold yellow]")
 
 @app.command()
 def pause() -> None:
@@ -124,62 +188,11 @@ def resume() -> None:
     else:
         console.print("Auto-save was not paused.")
 
-@app.command()
-def status() -> None:
-    """Show the current status, configuration, and saved sessions."""
-    paused = PAUSE_LOCK.exists()
-    cfg = load_config()
-    sessions = list_sessions()
-
-    # System Status Panel
-    status_text = (
-        f"[bold]Auto-save:[/bold] {'[bold red]PAUSED ⚠[/bold red]' if paused else '[bold green]ACTIVE ✅[/bold green]'}\n"
-        f"[bold]Config:[/bold]    {CONFIG_FILE}\n"
-        f"[bold]Data dir:[/bold]  {DATA_DIR}"
-    )
-    console.print(Panel(status_text, title="System Status", border_style="blue", expand=False))
-
-    # Configuration Panel
-    cfg_text = (
-        f"[cyan]restore_delay_seconds[/cyan] : {cfg.restore_delay_seconds}s\n"
-        f"[cyan]window_wait_timeout[/cyan]   : {cfg.window_wait_timeout}s\n"
-        f"[cyan]restore_floating[/cyan]      : {cfg.restore_floating}\n"
-        f"[cyan]restore_fullscreen[/cyan]    : {cfg.restore_fullscreen}\n"
-        f"[cyan]restore_cwd[/cyan]           : {cfg.restore_cwd}"
-    )
-    console.print(Panel(cfg_text, title="Active Configuration", border_style="magenta", expand=False))
-
-    # Sessions Table
-    if sessions:
-        table = Table(title="Window Layouts", show_header=True, header_style="bold cyan")
-        table.add_column("Workspace", style="dim", width=4)
-        table.add_column("App Class", style="bold green")
-        table.add_column("Command", style="yellow")
-        table.add_column("State", style="magenta")
-
-        for label, path, session in sessions:
-            console.print(f"\n[bold blue]Profile:[/bold blue] {label} [dim](Saved: {session.timestamp[:19] if session else 'Unknown'})[/dim]")
-            if session:
-                for w in session.windows:
-                    state = []
-                    if w.floating: state.append("float")
-                    if w.fullscreen == 2: state.append("full")
-                    elif w.fullscreen == 1: state.append("max")
-                    if w.cwd: state.append("cwd")
-                    
-                    table.add_row(str(w.workspace_id), w.initial_class, w.cmd, ",".join(state) if state else "-")
-        console.print(table)
-    else:
-        console.print("[dim]No sessions saved yet.[/dim]")
-
 @app.command(name="config")
 def config_cmd() -> None:
     """Create the config directory and write a default config.toml."""
     ensure_config_dir()
-    if CONFIG_FILE.exists():
-        console.print(f"[bold yellow]Config already exists at:[/bold yellow] {CONFIG_FILE}")
-    else:
-        console.print(f"[bold green]Created default config at:[/bold green] {CONFIG_FILE}")
+    console.print(f"[{'yellow' if CONFIG_FILE.exists() else 'green'}]{'Config already exists at:' if CONFIG_FILE.exists() else 'Created config at:'}[/] {CONFIG_FILE}")
 
 def main() -> None:
     app()

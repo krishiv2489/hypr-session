@@ -1,8 +1,5 @@
 """
 mapping.py — The class-to-command resolution engine.
-
-Problem: Hyprland reports a window's "class" (the Wayland app-id),
-but this often doesn't match what you type to launch the app.
 """
 
 from __future__ import annotations
@@ -10,10 +7,6 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-
-# ---------------------------------------------------------------------------
-# Paths & Constants
-# ---------------------------------------------------------------------------
 
 BUNDLED_MAP_PATH = Path(__file__).parent / "data" / "class_map.json"
 
@@ -27,13 +20,8 @@ _DESKTOP_SEARCH_DIRS: list[Path] = [
 
 _PLACEHOLDER_RE = re.compile(r"\s+%[a-zA-Z]")
 
-# THE FIX: Added 'bwrap', 'flatpak', and 'python' to ensure we don't 
-# accidentally use the sandbox/interpreter instead of the actual app name.
+# Added sandbox and interpreter binaries to force fallback
 _IGNORE_EXE_FRAGMENTS = ("electron", "node", "chromium", "bwrap", "flatpak", "python")
-
-# ---------------------------------------------------------------------------
-# Loaders & Parsers
-# ---------------------------------------------------------------------------
 
 def load_bundled_map() -> dict[str, str]:
     if not BUNDLED_MAP_PATH.exists():
@@ -67,9 +55,11 @@ def _parse_exec_command(exec_value: str) -> str:
 
 def build_desktop_map() -> dict[str, str]:
     mapping: dict[str, str] = {}
+
     for search_dir in _DESKTOP_SEARCH_DIRS:
         if not search_dir.exists():
             continue
+
         for desktop_file in search_dir.glob("*.desktop"):
             try:
                 content = desktop_file.read_text(errors="replace")
@@ -96,11 +86,8 @@ def build_desktop_map() -> dict[str, str]:
             key = wm_class.lower()
             if key not in mapping:
                 mapping[key] = binary
-    return mapping
 
-# ---------------------------------------------------------------------------
-# Main resolution function
-# ---------------------------------------------------------------------------
+    return mapping
 
 def resolve_command(
     initial_class: str,

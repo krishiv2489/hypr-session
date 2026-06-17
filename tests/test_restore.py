@@ -9,10 +9,6 @@ from hypr_session.config import HyprSessionConfig
 from hypr_session.models import FullscreenState, WindowEntry
 from hypr_session.restore import _build_dispatch_arg, _build_cwd_cmd
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
 def make_cfg(**overrides: Any) -> HyprSessionConfig:
     cfg = HyprSessionConfig()
     for k, v in overrides.items():
@@ -39,10 +35,6 @@ def make_window(**overrides: Any) -> WindowEntry:
         focus_history_id=int(overrides.get("focus_history_id", 0)),
         cwd=str(cwd_val) if cwd_val is not None else None,
     )
-
-# ---------------------------------------------------------------------------
-# _build_dispatch_arg — tiling windows
-# ---------------------------------------------------------------------------
 
 class TestBuildDispatchArgTiling:
     def test_basic_tiling_window(self):
@@ -71,10 +63,6 @@ class TestBuildDispatchArgTiling:
         assert "move" not in arg
         assert "size" not in arg
 
-# ---------------------------------------------------------------------------
-# _build_dispatch_arg — floating windows
-# ---------------------------------------------------------------------------
-
 class TestBuildDispatchArgFloating:
     def test_float_rule_present(self):
         w = make_window(floating=True, at=(100, 200), size=(800, 600))
@@ -96,10 +84,6 @@ class TestBuildDispatchArgFloating:
         arg = _build_dispatch_arg(w, make_cfg(restore_floating=False))
         assert "float" not in arg
         assert "move" not in arg
-
-# ---------------------------------------------------------------------------
-# _build_cwd_cmd — CWD flag construction
-# ---------------------------------------------------------------------------
 
 class TestBuildCwdCmd:
     def test_kitty_uses_directory_flag(self, tmp_path):
