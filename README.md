@@ -11,6 +11,7 @@ Close your laptop. Open it again. Everything is back where you left it.
 Hyprland does not have built-in session restoration. `hypr-session` fills that gap.
 
 Before you shut down, it captures:
+
 - Which applications are open
 - Which workspace each window is on
 - Whether each window is floating (and its exact position and size)
@@ -40,25 +41,19 @@ $ hypr-session status
 
 ---
 
-## Installation
+## 📦 Installation
 
-**Arch / EndeavourOS / Manjaro (AUR coming soon):**
-```bash
-# From source (until AUR package is published)
-git clone https://github.com/yourusername/hypr-session
-cd hypr-session
-pip install --break-system-packages .
-```
+We provide an automated installation script that securely installs the package and automatically configures your `hyprland.conf` to restore on boot and save on exit.
 
-**Any distro with Python 3.11+:**
-```bash
-pip install hypr-session
-```
+Run the following command in your terminal:
+
+````bash
+curl -sSL [https://raw.githubusercontent.com/krishiv2489/hypr-session/main/install.sh](https://raw.githubusercontent.com/krishiv2489/hypr-session/main/install.sh) | bash
 
 **Verify the install:**
 ```bash
 hypr-session --help
-```
+````
 
 ---
 
