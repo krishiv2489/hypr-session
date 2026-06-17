@@ -47,14 +47,15 @@ We provide an automated installation script that securely installs the package a
 
 Run the following command in your terminal:
 
-````bash
-curl -sSL [https://raw.githubusercontent.com/krishiv2489/hypr-session/main/install.sh](https://raw.githubusercontent.com/krishiv2489/hypr-session/main/install.sh) | bash
+```bash
+curl -sSL https://raw.githubusercontent.com/krishiv2489/hypr-session/main/install.sh | bash
 ```
 
 **Verify the install:**
-```bash
+
+```
 hypr-session --help
-````
+```
 
 ---
 
