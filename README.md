@@ -49,6 +49,7 @@ Run the following command in your terminal:
 
 ````bash
 curl -sSL [https://raw.githubusercontent.com/krishiv2489/hypr-session/main/install.sh](https://raw.githubusercontent.com/krishiv2489/hypr-session/main/install.sh) | bash
+```
 
 **Verify the install:**
 ```bash
