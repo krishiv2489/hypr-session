@@ -10,13 +10,54 @@ from pathlib import Path
 
 BUNDLED_MAP_PATH = Path(__file__).parent / "data" / "class_map.json"
 
-_DESKTOP_SEARCH_DIRS: list[Path] = [
-    Path.home() / ".local" / "share" / "applications",
-    Path("/usr/local/share/applications"),
-    Path("/usr/share/applications"),
-    Path("/var/lib/flatpak/exports/share/applications"),
-    Path.home() / ".local" / "share" / "flatpak" / "exports" / "share" / "applications",
-]
+def _get_desktop_search_dirs() -> list[Path]:
+    import os
+    dirs: list[Path] = []
+
+    # 1. XDG_DATA_HOME (respect environment, default to ~/.local/share)
+    xdg_data_home = os.environ.get("XDG_DATA_HOME")
+    if xdg_data_home:
+        data_home = Path(xdg_data_home).expanduser()
+    else:
+        data_home = Path.home() / ".local" / "share"
+    dirs.append(data_home / "applications")
+
+    # 2. XDG_DATA_DIRS (default to /usr/local/share:/usr/share)
+    xdg_data_dirs = os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share")
+    for d in xdg_data_dirs.split(":"):
+        if d.strip():
+            dirs.append(Path(d.strip()).expanduser() / "applications")
+
+    # 3. NixOS search paths
+    dirs.append(Path("/run/current-system/sw/share/applications"))
+    dirs.append(Path("~/.nix-profile/share/applications").expanduser())
+
+    # 4. Snap search paths
+    dirs.append(Path("/var/lib/snapd/desktop/applications"))
+
+    # 5. Flatpak paths (system and user) if they exist
+    flatpak_system = Path("/var/lib/flatpak/exports/share/applications")
+    flatpak_user = (Path.home() / ".local" / "share" / "flatpak" / "exports" / "share" / "applications")
+    if flatpak_system.exists():
+        dirs.append(flatpak_system)
+    if flatpak_user.exists():
+        dirs.append(flatpak_user)
+
+    # De-duplicate to preserve order and keep only unique Path objects
+    seen = set()
+    unique_dirs = []
+    for d in dirs:
+        try:
+            resolved = d.resolve()
+        except Exception:
+            resolved = d
+        if resolved not in seen:
+            seen.add(resolved)
+            unique_dirs.append(d)
+
+    return unique_dirs
+
+_DESKTOP_SEARCH_DIRS: list[Path] = _get_desktop_search_dirs()
 
 _PLACEHOLDER_RE = re.compile(r"\s+%[a-zA-Z]")
 
@@ -47,7 +88,25 @@ def _extract_field(content: str, field_name: str) -> str | None:
 
 def _parse_exec_command(exec_value: str) -> str:
     cleaned = _PLACEHOLDER_RE.sub("", exec_value).strip()
-    binary = cleaned.split()[0] if cleaned else ""
+    if not cleaned:
+        return ""
+
+    parts = cleaned.split()
+    first_part = parts[0]
+    is_flatpak = False
+    if first_part == "flatpak":
+        is_flatpak = True
+    else:
+        try:
+            if Path(first_part).name == "flatpak":
+                is_flatpak = True
+        except Exception:
+            pass
+
+    if is_flatpak and len(parts) > 1 and parts[1] == "run":
+        return cleaned
+
+    binary = parts[0]
     p = Path(binary)
     if p.is_absolute() and p.exists():
         return p.name
@@ -56,7 +115,7 @@ def _parse_exec_command(exec_value: str) -> str:
 def build_desktop_map() -> dict[str, str]:
     mapping: dict[str, str] = {}
 
-    for search_dir in _DESKTOP_SEARCH_DIRS:
+    for search_dir in _get_desktop_search_dirs():
         if not search_dir.exists():
             continue
 
@@ -80,7 +139,16 @@ def build_desktop_map() -> dict[str, str]:
             if not binary:
                 continue
 
-            if any(frag in binary.lower() for frag in _IGNORE_EXE_FRAGMENTS):
+            # Check if this is a flatpak command, so we do not skip it
+            is_flatpak = False
+            parts = binary.split()
+            if parts:
+                first_part = parts[0]
+                if first_part == "flatpak" or (first_part.startswith("/") and Path(first_part).name == "flatpak"):
+                    if len(parts) > 1 and parts[1] == "run":
+                        is_flatpak = True
+
+            if not is_flatpak and any(frag in binary.lower() for frag in _IGNORE_EXE_FRAGMENTS):
                 continue
 
             key = wm_class.lower()

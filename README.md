@@ -193,39 +193,48 @@ Includes:
 
 # Installation
 
-## Arch Linux / EndeavourOS / Manjaro
+## Arch Linux (AUR)
 
+If you are using Arch Linux, you can install the package directly from the AUR using your favorite helper:
+
+```bash
+yay -S hypr-session-git
+```
+Then, install the auto-start hooks:
+```bash
+hypr-session install-hooks
+```
+
+## PyPI (Universal)
+
+For all other distributions (Ubuntu, Fedora, NixOS, etc.), we recommend using `pipx` to install `hypr-session` in an isolated environment.
+
+**Arch Linux / EndeavourOS / Manjaro**
 ```bash
 sudo pacman -S python-pipx
-
-pipx install git+https://github.com/krishiv2489/hypr-session.git
-
+pipx install hypr-session
 hypr-session install-hooks
 ```
 
-## Fedora
-
+**Fedora**
 ```bash
 sudo dnf install pipx
-
-pipx install git+https://github.com/krishiv2489/hypr-session.git
-
+pipx install hypr-session
 hypr-session install-hooks
 ```
 
-## Ubuntu / Debian
-
+**Ubuntu / Debian**
 ```bash
 sudo apt install pipx
-
-pipx install git+https://github.com/krishiv2489/hypr-session.git
-
+pipx install hypr-session
 hypr-session install-hooks
 ```
 
 ---
 
-# Quick Install
+# Quick Install Script
+
+If you want a fully automated installation that handles `pipx` configuration for you:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/krishiv2489/hypr-session/main/install.sh | bash
@@ -265,10 +274,23 @@ List profiles:
 hypr-session list
 ```
 
+Compare your active desktop to the saved session:
+
+```bash
+hypr-session diff
+```
+
+Diagnose system issues:
+
+```bash
+hypr-session doctor
+```
+
 Pause automatic saving:
 
 ```bash
 hypr-session pause
+hypr-session pause --permanent
 ```
 
 ---
@@ -279,10 +301,15 @@ hypr-session pause
 | ------------------- | -------------------------------- |
 | `save`              | Snapshot current desktop         |
 | `restore`           | Restore saved session            |
-| `restore --dry-run` | Simulate restoration             |
+| `diff`              | Compare active vs saved windows  |
 | `status`            | View saved windows               |
 | `list`              | Show saved sessions              |
-| `pause`             | Disable temporary saving         |
+| `rename`            | Rename a session profile         |
+| `copy`              | Duplicate a session profile      |
+| `export`            | Export session to JSON           |
+| `import`            | Import session from JSON         |
+| `doctor`            | Run system diagnostics           |
+| `pause`             | Disable temporary/permanent save |
 | `install-hooks`     | Configure Hyprland automatically |
 
 ---
@@ -292,7 +319,7 @@ hypr-session pause
 Auto restore:
 
 ```conf
-exec-once = hypr-session restore
+exec-once = hypr-session restore --wait
 ```
 
 Save before exit:

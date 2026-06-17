@@ -10,20 +10,35 @@ from pathlib import Path
 try:
     import tomllib  # Python 3.11+
 except ImportError:
-    pass
+    try:
+        import tomli as tomllib  # type: ignore
+    except ImportError:
+        tomllib = None
 
 import os
 
-CONFIG_DIR = Path.home() / ".config/hypr-session"
+CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "hypr-session"
 CONFIG_FILE = CONFIG_DIR / "config.toml"
-DATA_DIR = Path.home() / ".local/share/hypr-session"
+DATA_DIR = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "hypr-session"
 BACKUPS_DIR = DATA_DIR / "backups"
 
-_run_user_dir = Path(f"/run/user/{os.getuid()}")
-if _run_user_dir.exists():
+# Resolve run user dir checking XDG_RUNTIME_DIR first
+_xdg_runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+if _xdg_runtime_dir:
+    _run_user_dir = Path(_xdg_runtime_dir)
+else:
+    _run_user_dir = Path(f"/run/user/{os.getuid()}")
+
+if _run_user_dir.exists() and _run_user_dir.is_dir():
     RUNTIME_PAUSE_LOCK = _run_user_dir / "hypr-session.paused"
 else:
-    RUNTIME_PAUSE_LOCK = Path(f"/tmp/hypr-session-{os.getuid()}.paused")
+    _tmp_user_dir = Path(f"/tmp/hypr-session-{os.getuid()}")
+    try:
+        _tmp_user_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(_tmp_user_dir, 0o700)
+    except Exception:
+        pass
+    RUNTIME_PAUSE_LOCK = _tmp_user_dir / "hypr-session.paused"
 
 PERMANENT_PAUSE_LOCK = CONFIG_DIR / "disabled"
 
@@ -105,8 +120,12 @@ def load_config() -> HyprSessionConfig:
         return HyprSessionConfig()
 
     try:
+        if tomllib is None:
+            raise ImportError("Neither tomllib nor tomli is available")
         data = tomllib.loads(CONFIG_FILE.read_text())
-    except Exception:
+    except Exception as e:
+        import sys
+        print(f"Warning: Failed to load configuration: {e}", file=sys.stderr)
         return HyprSessionConfig()
 
     cfg = HyprSessionConfig()

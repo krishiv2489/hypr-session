@@ -6,9 +6,16 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import time
 from pathlib import Path
+
+
+def notify_user(title: str, message: str, urgency: str = "normal") -> None:
+    """Send a desktop notification using notify-send if available."""
+    if shutil.which("notify-send"):
+        subprocess.run(["notify-send", "-u", urgency, title, message], check=False)
 
 
 def run_hyprctl(command: str) -> dict | list:

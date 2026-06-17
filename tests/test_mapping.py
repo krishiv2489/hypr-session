@@ -162,3 +162,44 @@ class TestResolveCommand:
             bundled={"org.kde.dolphin": "wrong-from-bundled"},
         )
         assert result == "dolphin"
+
+
+class TestGetDesktopSearchDirs:
+    def test_respects_xdg_data_dirs_and_home(self):
+        import os
+        from unittest.mock import patch
+
+        from hypr_session.mapping import _get_desktop_search_dirs
+
+        env_mock = {
+            "XDG_DATA_HOME": "/tmp/custom_data_home",
+            "XDG_DATA_DIRS": "/tmp/custom_dir1:/tmp/custom_dir2",
+        }
+        with patch.dict(os.environ, env_mock):
+            dirs = _get_desktop_search_dirs()
+            dir_strs = [str(d) for d in dirs]
+            assert "/tmp/custom_data_home/applications" in dir_strs
+            assert "/tmp/custom_dir1/applications" in dir_strs
+            assert "/tmp/custom_dir2/applications" in dir_strs
+            assert "/run/current-system/sw/share/applications" in dir_strs
+            assert "/var/lib/snapd/desktop/applications" in dir_strs
+
+    def test_flatpak_preserves_command(self):
+        from hypr_session.mapping import _parse_exec_command
+        assert _parse_exec_command("flatpak run com.spotify.Client") == "flatpak run com.spotify.Client"
+        assert _parse_exec_command("/usr/bin/flatpak run com.spotify.Client") == "/usr/bin/flatpak run com.spotify.Client"
+
+    def test_flatpak_app_not_skipped_in_desktop_map(self, tmp_path):
+        from unittest.mock import patch
+
+        from hypr_session.mapping import build_desktop_map
+
+        desktop_file = tmp_path / "spotify.desktop"
+        content = "[Desktop Entry]\nName=Spotify\nExec=flatpak run com.spotify.Client %U\nStartupWMClass=Spotify\n"
+        desktop_file.write_text(content)
+
+        with patch("hypr_session.mapping._get_desktop_search_dirs") as mock_get_dirs:
+            mock_get_dirs.return_value = [tmp_path]
+            res = build_desktop_map()
+            assert "spotify" in res
+            assert res["spotify"] == "flatpak run com.spotify.Client"

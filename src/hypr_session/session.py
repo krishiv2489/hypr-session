@@ -78,7 +78,7 @@ def get_session_path(profile: str | None = None) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def get_current_session_windows() -> list[WindowEntry]:
+def get_current_session_windows(only_active: bool = False) -> list[WindowEntry]:
     """
     Query Hyprland and return a list of WindowEntry objects representing the active session.
     """
@@ -92,6 +92,23 @@ def get_current_session_windows() -> list[WindowEntry]:
     # Determine our own ancestor PIDs to exclude the terminal running this save.
     # This prevents hypr-session from saving its own terminal window.
     own_ancestors = get_ancestor_pids(os.getpid())
+
+    active_ws_id = None
+    if only_active:
+        try:
+            active_ws = run_hyprctl("activeworkspace")
+            if isinstance(active_ws, dict):
+                active_ws_id = active_ws.get("id")
+        except Exception:
+            try:
+                monitors = run_hyprctl("monitors")
+                if isinstance(monitors, list):
+                    for m in monitors:
+                        if m.get("focused"):
+                            active_ws_id = m.get("activeWorkspace", {}).get("id")
+                            break
+            except Exception:
+                pass
 
     clients: list[dict] = run_hyprctl("clients")  # type: ignore[assignment]
     windows: list[WindowEntry] = []
@@ -161,12 +178,15 @@ def get_current_session_windows() -> list[WindowEntry]:
         at_raw = client.get("at", [0, 0])
         size_raw = client.get("size", [800, 600])
         workspace = client.get("workspace", {})
+        workspace_id = workspace.get("id", 1)
+        if active_ws_id is not None and workspace_id != active_ws_id:
+            continue
 
         entry = WindowEntry(
             address=client.get("address", "0x0"),
             initial_class=initial_class,
             cmd=cmd,
-            workspace_id=workspace.get("id", 1),
+            workspace_id=workspace_id,
             monitor=client.get("monitor", 0),
             floating=client.get("floating", False),
             at=(int(at_raw[0]), int(at_raw[1])),
@@ -194,7 +214,7 @@ def get_current_session_windows() -> list[WindowEntry]:
     windows.sort(key=lambda w: w.focus_history_id, reverse=True)
     return windows
 
-def save_session(profile: str | None = None, force_empty: bool = False) -> tuple[Path, Session]:
+def save_session(profile: str | None = None, force_empty: bool = False, only_active: bool = False) -> tuple[Path, Session]:
     """
     Capture the current Hyprland session and write it to disk.
 
@@ -202,7 +222,7 @@ def save_session(profile: str | None = None, force_empty: bool = False) -> tuple
 
     Raises RuntimeError if hyprctl fails or if trying to save an empty session without force_empty.
     """
-    windows = get_current_session_windows()
+    windows = get_current_session_windows(only_active=only_active)
 
     if not windows and not force_empty:
         raise RuntimeError("No windows detected. Refusing to save an empty session.")

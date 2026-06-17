@@ -42,12 +42,19 @@ fi
 pipx ensurepath > /dev/null 2>&1
 
 # 3. Install the package globally
-echo -e "\n\033[1;33m[1/2] Downloading and compiling package...\033[0m"
-pipx install git+https://github.com/krishiv2489/hypr-session.git --force
+echo -e "\n\033[1;33m[1/2] Downloading and installing package from PyPI...\033[0m"
+pipx install hypr-session --force
 
-# 4. Run the Python auto-injector using the absolute path (prevents "command not found" on fresh installs)
+# 4. Run the Python auto-injector using the absolute path or PATH fallback
 echo -e "\n\033[1;33m[2/2] Injecting hooks into hyprland.conf...\033[0m"
-~/.local/bin/hypr-session install-hooks
+if command -v hypr-session &> /dev/null; then
+    hypr-session install-hooks
+elif [ -x "$HOME/.local/bin/hypr-session" ]; then
+    "$HOME/.local/bin/hypr-session" install-hooks
+else
+    echo -e "\033[1;31m[WARNING] hypr-session binary not found in PATH.\033[0m"
+    echo "Please run 'hypr-session install-hooks' manually after restarting your terminal."
+fi
 
 echo -e "\n\033[1;32m✅ Installation Complete! hypr-session is now active.\033[0m"
 echo "You can manually test it by typing: hypr-session status"

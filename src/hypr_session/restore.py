@@ -92,7 +92,12 @@ def _build_dispatch_arg(window: WindowEntry, cfg: HyprSessionConfig) -> str:
 
     return f"[{rule_string}] {cmd}"
 
-def restore_session(profile: str | None = None, dry_run: bool = False) -> Generator[tuple[WindowEntry, str], None, None]:
+def restore_session(
+    profile: str | None = None,
+    dry_run: bool = False,
+    workspaces: list[int] | None = None,
+    exclude_classes: list[str] | None = None,
+) -> Generator[tuple[WindowEntry, str], None, None]:
     """
     Generator that yields (WindowEntry, StatusString) to decouple logic from the UI.
     """
@@ -102,10 +107,22 @@ def restore_session(profile: str | None = None, dry_run: bool = False) -> Genera
     if session is None or not session.windows:
         return
 
+    # Filter windows based on workspaces and exclude list
+    filtered_windows = []
+    for w in session.windows:
+        if workspaces is not None and w.workspace_id not in workspaces:
+            continue
+        if exclude_classes is not None and any(w.initial_class.lower() == ec.lower() for ec in exclude_classes):
+            continue
+        filtered_windows.append(w)
+
+    if not filtered_windows:
+        return
+
     if cfg.restore_delay_seconds > 0 and not dry_run:
         time.sleep(cfg.restore_delay_seconds)
 
-    for i, window in enumerate(session.windows):
+    for i, window in enumerate(filtered_windows):
         executable = window.cmd.split()[0]
         if not shutil.which(executable):
             log.warning("Skipping %s: '%s' not found in PATH", window.initial_class, executable)

@@ -4,8 +4,10 @@ cli.py — Command-line interface for hypr-session with Rich integration.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
+import sys
 from pathlib import Path
 
 import typer
@@ -31,13 +33,14 @@ from .session import (
     load_session,
     save_session,
 )
-from .utils import is_hyprland_running, run_hyprctl, wait_for_hyprland
+from .utils import is_hyprland_running, notify_user, run_hyprctl, wait_for_hyprland
 
 app = typer.Typer(
     name="hypr-session",
     help="Premium session save and restore for the Hyprland compositor.",
     no_args_is_help=True,
     pretty_exceptions_enable=False,
+    rich_markup_mode="rich",
 )
 console = Console()
 
@@ -60,6 +63,7 @@ def save(
     profile: str | None = typer.Option(None, "--profile", "-p", help="Save under a named profile."),
     force: bool = typer.Option(False, "--force", "-f", help="Save even if paused."),
     force_empty: bool = typer.Option(False, "--force-empty", help="Allow saving a session with 0 windows."),
+    only_active: bool = typer.Option(False, "--only-active", help="Only save windows on the currently active workspace."),
 ) -> None:
     """Snapshot the current Hyprland session to disk."""
     _require_hyprland()
@@ -67,7 +71,7 @@ def save(
         raise typer.Exit(0)
 
     try:
-        path, session = save_session(profile, force_empty=force_empty)
+        path, session = save_session(profile, force_empty=force_empty, only_active=only_active)
     except RuntimeError as exc:
         console.print(f"[bold red]Error:[/bold red] {exc}")
         raise typer.Exit(1) from None
@@ -80,6 +84,8 @@ def restore(
     profile: str | None = typer.Option(None, "--profile", "-p", help="Restore a specific profile."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be restored without launching apps."),
     wait: bool = typer.Option(False, "--wait", help="Wait for Hyprland to become ready before restoring."),
+    workspace: str | None = typer.Option(None, "--workspace", help="Comma-separated list of workspace IDs to restore (e.g. 1,2)."),
+    exclude: str | None = typer.Option(None, "--exclude", help="Comma-separated list of window classes to skip."),
 ) -> None:
     """Restore the saved Hyprland session."""
     if wait:
@@ -89,12 +95,47 @@ def restore(
             raise typer.Exit(1)
 
     _require_hyprland()
-    session = load_session(profile)
-    label = profile or "default"
+    try:
+        session = load_session(profile)
+        label = profile or "default"
 
-    if session is None or not session.windows:
-        console.print(f"[bold yellow]⚠️ Session '{label}' is empty or missing.[/bold yellow]")
-        raise typer.Exit(1)
+        if session is None or not session.windows:
+            msg = f"Session '{label}' is empty or missing."
+            console.print(f"[bold yellow]⚠️ {msg}[/bold yellow]")
+            if wait:
+                notify_user("hypr-session Warning", msg)
+            raise typer.Exit(1)
+
+    except Exception as e:
+        console.print(f"[bold red]Error loading session:[/bold red] {e}")
+        if wait:
+            notify_user("hypr-session Error", str(e), "critical")
+        raise typer.Exit(1) from None
+
+    workspaces_list = None
+    if workspace:
+        try:
+            workspaces_list = [int(x.strip()) for x in workspace.split(",") if x.strip()]
+        except ValueError:
+            console.print("[bold red]Error:[/bold red] --workspace must be a comma-separated list of integers.")
+            raise typer.Exit(1) from None
+
+    exclude_list = None
+    if exclude:
+        exclude_list = [x.strip() for x in exclude.split(",") if x.strip()]
+
+    # Filter for count
+    filtered_windows = []
+    for w in session.windows:
+        if workspaces_list is not None and w.workspace_id not in workspaces_list:
+            continue
+        if exclude_list is not None and any(w.initial_class.lower() == ec.lower() for ec in exclude_list):
+            continue
+        filtered_windows.append(w)
+
+    if not filtered_windows:
+        console.print("[bold yellow]⚠️ No windows to restore after applying filters.[/bold yellow]")
+        raise typer.Exit(0)
 
     console.print(f"\n[bold blue]🚀 Restoring '{label}' {'(DRY RUN)' if dry_run else ''}[/bold blue]")
 
@@ -108,9 +149,14 @@ def restore(
         console=console,
         transient=False,
     ) as progress:
-        task = progress.add_task("Restoring windows...", total=len(session.windows))
+        task = progress.add_task("Restoring windows...", total=len(filtered_windows))
 
-        for window, status in _restore(profile, dry_run=dry_run):
+        for window, status in _restore(
+            profile,
+            dry_run=dry_run,
+            workspaces=workspaces_list,
+            exclude_classes=exclude_list,
+        ):
             if status == "OK":
                 progress.console.print(f"[green]✔[/green] {window.initial_class} → ws:{window.workspace_id}")
                 restored += 1
@@ -164,30 +210,32 @@ def status() -> None:
     console.print(Panel(status_text, title="System Status", border_style="blue", expand=False))
 
     if sessions:
-        table = Table(show_header=True, header_style="bold cyan")
-        table.add_column("WS", style="dim", width=3)
-        table.add_column("App Class", style="bold green")
-        table.add_column("Command", style="yellow")
-        table.add_column("State", style="magenta")
-
+        from rich.tree import Tree
         for label, _path, session in sessions:
-            console.print(f"\n[bold blue]Profile:[/bold blue] {label} [dim](Saved: {session.timestamp[:19] if session else 'Unknown'})[/dim]")
-            if session:
-                for w in session.windows:
-                    state = []
-                    if w.floating:
-                        state.append("float")
-                    if w.fullscreen == 2:
-                        state.append("full")
-                    elif w.fullscreen == 1:
-                        state.append("max")
-                    if w.cwd:
-                        state.append("cwd")
-                    table.add_row(
-                        str(w.workspace_id), w.initial_class, w.cmd,
-                        ",".join(state) if state else "-",
-                    )
-        console.print(table)
+            if not session:
+                console.print(f"\n[bold blue]Profile:[/bold blue] {label} [red](corrupted)[/red]")
+                continue
+
+            root_label = f"[bold blue]Profile:[/bold blue] {label} [dim](Saved: {session.timestamp[:19]})[/dim]"
+            tree = Tree(root_label)
+
+            # Group windows by monitor, then by workspace
+            windows_by_monitor = {}
+            for w in session.windows:
+                windows_by_monitor.setdefault(w.monitor, {}).setdefault(w.workspace_id, []).append(w)
+
+            for monitor_id in sorted(windows_by_monitor.keys()):
+                monitor_branch = tree.add(f"[bold cyan]Monitor {monitor_id}[/bold cyan]")
+                workspaces_dict = windows_by_monitor[monitor_id]
+                for workspace_id in sorted(workspaces_dict.keys()):
+                    workspace_branch = monitor_branch.add(f"[bold green]Workspace {workspace_id}[/bold green]")
+                    for w in workspaces_dict[workspace_id]:
+                        layout_type = "floating" if w.floating else "tiling"
+                        win_desc = f"[magenta]{w.initial_class}[/magenta] [dim]({layout_type})[/dim]"
+                        if w.cwd:
+                            win_desc += f" [yellow]cwd: {w.cwd}[/yellow]"
+                        workspace_branch.add(win_desc)
+            console.print(tree)
     else:
         console.print("[dim]No sessions saved yet.[/dim]")
 
@@ -236,15 +284,32 @@ def config_cmd() -> None:
 @app.command(name="install-hooks")
 def install_hooks() -> None:
     """Automatically inject startup and shutdown hooks into hyprland.conf."""
-    hypr_conf = Path.home() / ".config/hypr/hyprland.conf"
+    xdg_config_home = os.environ.get("XDG_CONFIG_HOME")
+    if xdg_config_home:
+        hypr_conf = Path(xdg_config_home) / "hypr/hyprland.conf"
+    else:
+        hypr_conf = Path.home() / ".config/hypr/hyprland.conf"
 
     if not hypr_conf.exists():
         console.print(f"[bold red]❌ Could not find {hypr_conf}. Please ensure Hyprland is configured.[/bold red]")
         raise typer.Exit(1)
 
+    # Detect the absolute path of the executing hypr-session binary
+    binary_path_str = shutil.which("hypr-session")
+    if binary_path_str:
+        binary_path = str(Path(binary_path_str).resolve())
+    else:
+        if sys.argv and sys.argv[0]:
+            binary_path = str(Path(sys.argv[0]).resolve())
+        else:
+            binary_path = "hypr-session"
+
     backup_path = hypr_conf.with_suffix(".conf.bak")
-    shutil.copy(hypr_conf, backup_path)
-    console.print(f"[dim]Created backup of hyprland.conf at {backup_path}[/dim]")
+    if not backup_path.exists():
+        shutil.copy(hypr_conf, backup_path)
+        console.print(f"[dim]Created backup of hyprland.conf at {backup_path}[/dim]")
+    else:
+        console.print(f"[dim]Backup of hyprland.conf already exists at {backup_path}[/dim]")
 
     lines = hypr_conf.read_text(encoding="utf-8").splitlines()
     new_lines = []
@@ -256,13 +321,14 @@ def install_hooks() -> None:
             has_restore = True
 
         is_bind = line.strip().startswith("bind")
-        is_exit = re.search(r',\s*(dispatch\s+)?exit\s*$', line)
+        # Ignore trailing comments and whitespace in exit bind
+        is_exit = re.search(r',\s*(dispatch\s+)?exit\s*(?:#.*)?$', line.strip())
 
         if is_bind and is_exit and "hypr-session" not in line:
             prefix = line.rsplit(',', 1)[0]
             new_lines.append("# [Auto-commented by hypr-session]")
             new_lines.append(f"# {line}")
-            new_lines.append(f"{prefix}, exec, hypr-session save ; hyprctl dispatch exit")
+            new_lines.append(f"{prefix}, exec, {binary_path} save ; hyprctl dispatch exit")
             exit_modified = True
             console.print(f"[bold green]✔ Injected save hook into exit bind:[/bold green] {prefix.strip()}")
             continue
@@ -271,7 +337,7 @@ def install_hooks() -> None:
 
     if not has_restore:
         new_lines.append("\n# --- Auto-generated by hypr-session ---")
-        new_lines.append("exec-once = hypr-session restore --wait")
+        new_lines.append(f"exec-once = {binary_path} restore --wait")
         console.print("[bold green]✔ Injected startup hook (exec-once).[/bold green]")
 
     if not has_restore or exit_modified:
@@ -283,6 +349,7 @@ def install_hooks() -> None:
 @app.command()
 def diff(profile: str | None = typer.Option(None, "--profile", "-p", help="Profile to diff against.")) -> None:
     """Compare currently saved session against active desktop."""
+    from collections import Counter
     _require_hyprland()
     saved_session = load_session(profile)
     if not saved_session or not saved_session.windows:
@@ -291,30 +358,86 @@ def diff(profile: str | None = typer.Option(None, "--profile", "-p", help="Profi
 
     current_windows = get_current_session_windows()
 
-    saved_keys = {f"{w.workspace_id}:{w.initial_class}" for w in saved_session.windows}
-    current_keys = {f"{w.workspace_id}:{w.initial_class}" for w in current_windows}
+    saved_counter = Counter((w.workspace_id, w.initial_class) for w in saved_session.windows)
+    current_counter = Counter((w.workspace_id, w.initial_class) for w in current_windows)
 
-    missing = saved_keys - current_keys
-    new = current_keys - saved_keys
+    all_keys = sorted(
+        saved_counter.keys() | current_counter.keys(),
+        key=lambda x: (x[0], x[1])
+    )
 
-    if not missing and not new:
+    table = Table(title="Session Comparison: Saved vs Active", title_style="bold blue")
+    table.add_column("Saved WS", justify="right")
+    table.add_column("Saved App Class")
+    table.add_column("Match Status", justify="center")
+    table.add_column("Active WS", justify="right")
+    table.add_column("Active App Class")
+
+    geom_warning = False
+    has_diff = False
+
+    for key in all_keys:
+        ws_id, cls = key
+        saved_wins = [w for w in saved_session.windows if w.workspace_id == ws_id and w.initial_class == cls]
+        current_wins = [w for w in current_windows if w.workspace_id == ws_id and w.initial_class == cls]
+
+        max_len = max(len(saved_wins), len(current_wins))
+        for i in range(max_len):
+            s_win = saved_wins[i] if i < len(saved_wins) else None
+            c_win = current_wins[i] if i < len(current_wins) else None
+
+            if s_win and c_win:
+                geom_diff = False
+                if s_win.floating and c_win.floating:
+                    if s_win.at != c_win.at or s_win.size != c_win.size:
+                        geom_diff = True
+                        geom_warning = True
+                elif s_win.floating != c_win.floating:
+                    geom_diff = True
+                    geom_warning = True
+
+                if geom_diff:
+                    status_str = "[bold yellow]Δ geom[/bold yellow]"
+                    has_diff = True
+                else:
+                    status_str = "[dim]matched[/dim]"
+
+                table.add_row(
+                    f"[dim]{s_win.workspace_id}[/dim]",
+                    f"[dim]{s_win.initial_class}[/dim]",
+                    status_str,
+                    f"[dim]{c_win.workspace_id}[/dim]",
+                    f"[dim]{c_win.initial_class}[/dim]",
+                )
+            elif s_win:
+                has_diff = True
+                table.add_row(
+                    f"[bold red]{s_win.workspace_id}[/bold red]",
+                    f"[bold red]{s_win.initial_class}[/bold red]",
+                    "[bold red]<- missing[/bold red]",
+                    "[dim]-[/dim]",
+                    "[dim]-[/dim]",
+                )
+            elif c_win:
+                has_diff = True
+                table.add_row(
+                    "[dim]-[/dim]",
+                    "[dim]-[/dim]",
+                    "[bold green]new ->[/bold green]",
+                    f"[bold green]{c_win.workspace_id}[/bold green]",
+                    f"[bold green]{c_win.initial_class}[/bold green]",
+                )
+
+    if not has_diff:
         console.print("[bold green]✔ Active desktop matches saved session perfectly.[/bold green]")
+        if geom_warning:
+            console.print("[bold yellow]⚠️ Warning: Some floating window geometries differ from the saved profile.[/bold yellow]")
         return
 
-    table = Table(title="Session Diff", title_style="bold blue")
-    table.add_column("Status", style="bold")
-    table.add_column("Workspace", style="dim")
-    table.add_column("App Class", style="cyan")
-
-    for key in missing:
-        ws, cls = key.split(":", 1)
-        table.add_row("[red]- Missing[/red]", ws, cls)
-
-    for key in new:
-        ws, cls = key.split(":", 1)
-        table.add_row("[green]+ New[/green]", ws, cls)
-
     console.print(table)
+
+    if geom_warning:
+        console.print("[bold yellow]⚠️ Warning: Some floating window geometries differ from the saved profile.[/bold yellow]")
 
 
 @app.command()
@@ -366,6 +489,127 @@ def _version_callback(value: bool) -> None:
         from hypr_session import __version__
         console.print(f"hypr-session v{__version__}")
         raise typer.Exit()
+
+
+def _resolve_profile_name(name: str) -> str | None:
+    if name == "default":
+        return None
+    return name
+
+
+@app.command(name="rename")
+def rename(
+    old: str = typer.Argument(..., help="Current name of the profile."),
+    new: str = typer.Argument(..., help="New name for the profile."),
+) -> None:
+    """Rename an existing session profile."""
+    from .session import get_session_path
+
+    src_path = get_session_path(_resolve_profile_name(old))
+    if not src_path.exists():
+        console.print(f"[bold red]Error:[/bold red] Profile '{old}' does not exist.")
+        raise typer.Exit(1)
+
+    dest_path = get_session_path(_resolve_profile_name(new))
+    if dest_path.exists():
+        console.print(f"[bold red]Error:[/bold red] Profile '{new}' already exists.")
+        raise typer.Exit(1)
+
+    try:
+        shutil.move(src_path, dest_path)
+        console.print(f"[bold green]Profile '{old}' successfully renamed to '{new}'.[/bold green]")
+    except Exception as exc:
+        console.print(f"[bold red]Error renaming profile:[/bold red] {exc}")
+        raise typer.Exit(1) from exc
+
+
+@app.command(name="copy")
+def copy(
+    src: str = typer.Argument(..., help="Source profile name."),
+    dest: str = typer.Argument(..., help="Destination profile name."),
+) -> None:
+    """Duplicate an existing session profile."""
+    from .session import get_session_path
+
+    src_path = get_session_path(_resolve_profile_name(src))
+    if not src_path.exists():
+        console.print(f"[bold red]Error:[/bold red] Profile '{src}' does not exist.")
+        raise typer.Exit(1)
+
+    dest_path = get_session_path(_resolve_profile_name(dest))
+    if dest_path.exists():
+        console.print(f"[bold red]Error:[/bold red] Profile '{dest}' already exists.")
+        raise typer.Exit(1)
+
+    try:
+        shutil.copy2(src_path, dest_path)
+        console.print(f"[bold green]Profile '{src}' successfully copied to '{dest}'.[/bold green]")
+    except Exception as exc:
+        console.print(f"[bold red]Error copying profile:[/bold red] {exc}")
+        raise typer.Exit(1) from exc
+
+
+@app.command(name="export")
+def export(
+    profile: str = typer.Argument(..., help="Name of the profile to export."),
+    file_path: Path = typer.Argument(..., help="Path to the destination JSON file."),
+) -> None:
+    """Export a session profile to a JSON file."""
+    from .session import get_session_path
+
+    src_path = get_session_path(_resolve_profile_name(profile))
+    if not src_path.exists():
+        console.print(f"[bold red]Error:[/bold red] Profile '{profile}' does not exist.")
+        raise typer.Exit(1)
+
+    if file_path.exists():
+        console.print(f"[bold red]Error:[/bold red] File '{file_path}' already exists.")
+        raise typer.Exit(1)
+
+    try:
+        if not file_path.parent.exists():
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src_path, file_path)
+        console.print(f"[bold green]Profile '{profile}' successfully exported to '{file_path}'.[/bold green]")
+    except Exception as exc:
+        console.print(f"[bold red]Error exporting profile:[/bold red] {exc}")
+        raise typer.Exit(1) from exc
+
+
+@app.command(name="import")
+def import_cmd(
+    file_path: Path = typer.Argument(..., help="Path to the JSON file to import."),
+    profile: str = typer.Option(..., "--profile", "-p", help="Name of the target profile."),
+) -> None:
+    """Import a JSON file as a session profile."""
+    import json
+
+    from .models import Session
+    from .session import get_session_path
+
+    if not file_path.exists() or not file_path.is_file():
+        console.print(f"[bold red]Error:[/bold red] File '{file_path}' does not exist or is not a file.")
+        raise typer.Exit(1)
+
+    try:
+        with open(file_path, encoding="utf-8") as f:
+            data = json.load(f)
+        Session.from_dict(data)
+    except Exception as exc:
+        console.print(f"[bold red]Error:[/bold red] '{file_path}' is not a valid session file: {exc}")
+        raise typer.Exit(1) from exc
+
+    dest_path = get_session_path(_resolve_profile_name(profile))
+    if dest_path.exists():
+        console.print(f"[bold red]Error:[/bold red] Profile '{profile}' already exists.")
+        raise typer.Exit(1)
+
+    try:
+        shutil.copy2(file_path, dest_path)
+        console.print(f"[bold green]Successfully imported '{file_path}' as profile '{profile}'.[/bold green]")
+    except Exception as exc:
+        console.print(f"[bold red]Error importing profile:[/bold red] {exc}")
+        raise typer.Exit(1) from exc
 
 
 @app.callback()
