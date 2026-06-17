@@ -1,112 +1,143 @@
 """
-test_restore.py — Unit tests for restore.py dispatch rule building.
+restore.py — Session restore logic.
 """
 
-from typing import Any
-import pytest
+from __future__ import annotations
 
-from hypr_session.config import HyprSessionConfig
-from hypr_session.models import FullscreenState, WindowEntry
-from hypr_session.restore import _build_dispatch_arg, _build_cwd_cmd
+import shlex
+import shutil
+import subprocess
+import time
+from pathlib import Path
+from typing import Generator
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
+from .config import TERMINAL_CWD_FLAGS, load_config
+from .models import FullscreenState, WindowEntry
+from .session import load_session
+from .utils import run_hyprctl
 
-def make_cfg(**overrides: Any) -> HyprSessionConfig:
-    cfg = HyprSessionConfig()
-    for k, v in overrides.items():
-        setattr(cfg, k, v)
-    return cfg
+def _addresses_for_class(wm_class: str) -> set[str]:
+    try:
+        clients: list[dict] = run_hyprctl("clients")  # type: ignore[assignment]
+        class_lower = wm_class.lower()
+        return {
+            c["address"]
+            for c in clients
+            if (c.get("class", "").lower() == class_lower)
+            or (c.get("initialClass", "").lower() == class_lower)
+        }
+    except RuntimeError:
+        return set()
 
-def make_window(**overrides: Any) -> WindowEntry:
-    """Explicitly map kwargs to silence strict type checkers like Pylance."""
-    return WindowEntry(
-        address=overrides.get("address", "0x55737f169ea0"),
-        initial_class=overrides.get("initial_class", "firefox"),
-        cmd=overrides.get("cmd", "firefox"),
-        workspace_id=overrides.get("workspace_id", 1),
-        monitor=overrides.get("monitor", 0),
-        floating=overrides.get("floating", False),
-        at=overrides.get("at", (0, 0)),
-        size=overrides.get("size", (1920, 1200)),
-        fullscreen=overrides.get("fullscreen", FullscreenState.NONE),
-        pinned=overrides.get("pinned", False),
-        focus_history_id=overrides.get("focus_history_id", 0),
-        cwd=overrides.get("cwd", None),
-    )
+def _wait_for_new_address(
+    wm_class: str, before: set[str], timeout: float, poll_interval: float = 0.3
+) -> str | None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        current = _addresses_for_class(wm_class)
+        new = current - before
+        if new:
+            return list(new)[0]
+        time.sleep(poll_interval)
+    return None
 
-# ---------------------------------------------------------------------------
-# _build_dispatch_arg — tiling windows
-# ---------------------------------------------------------------------------
+def _build_cwd_cmd(window: WindowEntry) -> str:
+    cmd = window.cmd
+    if not window.cwd or not Path(window.cwd).is_dir():
+        return cmd
 
-class TestBuildDispatchArgTiling:
-    def test_basic_tiling_window(self):
-        w = make_window(workspace_id=1, floating=False)
-        cfg = make_cfg()
-        arg = _build_dispatch_arg(w, cfg)
-        assert arg.startswith("[")
-        assert "workspace 1 silent" in arg
-        assert "float" not in arg
-        assert "firefox" in arg
+    class_lower = window.initial_class.lower()
+    flag_info = TERMINAL_CWD_FLAGS.get(class_lower)
 
-    def test_workspace_number_in_arg(self):
-        w = make_window(workspace_id=5)
-        arg = _build_dispatch_arg(w, make_cfg()) # type: ignore
-        assert "workspace 5 silent" in arg
+    if flag_info is None:
+        return f"{cmd} --working-directory {shlex.quote(window.cwd)}"
 
-    def test_silent_keyword_always_present(self):
-        w = make_window(workspace_id=2)
-        arg = _build_dispatch_arg(w, make_cfg())
-        assert "silent" in arg
+    style, flag = flag_info
+    quoted_cwd = shlex.quote(window.cwd)
 
-    def test_no_float_rules_for_tiling(self):
-        w = make_window(floating=False)
-        arg = _build_dispatch_arg(w, make_cfg())
-        assert "float" not in arg
-        assert "move" not in arg
-        assert "size" not in arg
+    if style == "separate":
+        return f"{cmd} {flag} {quoted_cwd}"
+    elif style == "equals":
+        return f"{cmd} {flag}={quoted_cwd}"
+    elif style == "subcommand":
+        return f"{cmd} {flag} {quoted_cwd}"
+    return cmd
 
-# ---------------------------------------------------------------------------
-# _build_dispatch_arg — floating windows
-# ---------------------------------------------------------------------------
+def _build_dispatch_arg(window: WindowEntry, cfg) -> str:
+    rules: list[str] = [f"workspace {window.workspace_id} silent"]
 
-class TestBuildDispatchArgFloating:
-    def test_float_rule_present(self):
-        w = make_window(floating=True, at=(100, 200), size=(800, 600))
-        arg = _build_dispatch_arg(w, make_cfg(restore_floating=True))
-        assert "float" in arg
+    if window.pinned:
+        rules.append("pin")
 
-    def test_move_rule_with_correct_coords(self):
-        w = make_window(floating=True, at=(560, 200), size=(900, 600))
-        arg = _build_dispatch_arg(w, make_cfg(restore_floating=True))
-        assert "move 560 200" in arg
+    if window.floating and cfg.restore_floating:
+        x, y = window.at
+        w, h = window.size
+        rules.append("float")
+        rules.append(f"move {x} {y}")
+        rules.append(f"size {w} {h}")
 
-    def test_size_rule_with_correct_dimensions(self):
-        w = make_window(floating=True, at=(0, 0), size=(1200, 800))
-        arg = _build_dispatch_arg(w, make_cfg(restore_floating=True))
-        assert "size 1200 800" in arg
+    if cfg.restore_fullscreen:
+        fs = FullscreenState(window.fullscreen)
+        if fs == FullscreenState.FULLSCREEN:
+            rules.append("fullscreen")
+        elif fs == FullscreenState.MAXIMIZED:
+            rules.append("maximize")
 
-    def test_float_skipped_when_restore_floating_false(self):
-        w = make_window(floating=True, at=(100, 200), size=(800, 600))
-        arg = _build_dispatch_arg(w, make_cfg(restore_floating=False))
-        assert "float" not in arg
-        assert "move" not in arg
+    rule_string = "; ".join(rules)
+    cmd = _build_cwd_cmd(window)
 
-# ---------------------------------------------------------------------------
-# _build_cwd_cmd — CWD flag construction
-# ---------------------------------------------------------------------------
+    return f"[{rule_string}] {cmd}"
 
-class TestBuildCwdCmd:
-    def test_kitty_uses_directory_flag(self, tmp_path):
-        w = make_window(initial_class="kitty", cmd="kitty", cwd=str(tmp_path))
-        cmd = _build_cwd_cmd(w)
-        assert "--directory" in cmd
-        assert str(tmp_path) in cmd
+def restore_session(profile: str | None = None, dry_run: bool = False) -> Generator[tuple[WindowEntry, str], None, None]:
+    """
+    Generator that yields (WindowEntry, StatusString) to decouple logic from the UI.
+    """
+    cfg = load_config()
+    session = load_session(profile)
 
-    def test_path_with_spaces_is_quoted(self):
-        import tempfile
-        with tempfile.TemporaryDirectory(prefix="my dir ") as tmpdir:
-            w = make_window(initial_class="kitty", cmd="kitty", cwd=tmpdir)
-            cmd = _build_cwd_cmd(w)
-            assert "'" in cmd or '"' in cmd
+    if session is None or not session.windows:
+        return
+
+    if cfg.restore_delay_seconds > 0 and not dry_run:
+        time.sleep(cfg.restore_delay_seconds)
+
+    for window in session.windows:
+        executable = window.cmd.split()[0]
+        if not shutil.which(executable):
+            yield window, "MISSING"
+            continue
+
+        if dry_run:
+            yield window, "DRY_RUN"
+            continue
+
+        dispatch_arg = _build_dispatch_arg(window, cfg)
+        before = _addresses_for_class(window.initial_class)
+
+        subprocess.run(
+            ["hyprctl", "dispatch", "exec", dispatch_arg],
+            capture_output=True,
+            check=False,
+        )
+
+        new_address = _wait_for_new_address(
+            window.initial_class, before, cfg.window_wait_timeout
+        )
+
+        if not new_address:
+            yield window, "TIMEOUT"
+            continue
+
+        time.sleep(0.4)
+
+        subprocess.run([
+            "hyprctl", "dispatch", "movetoworkspacesilent", 
+            f"{window.workspace_id},address:{new_address}"
+        ], check=False)
+
+        if window.floating and cfg.restore_floating:
+            subprocess.run(["hyprctl", "dispatch", "setfloating", f"address:{new_address}"], check=False)
+            subprocess.run(["hyprctl", "dispatch", "movewindowpixel", f"exact {window.at[0]} {window.at[1]},address:{new_address}"], check=False)
+            subprocess.run(["hyprctl", "dispatch", "resizewindowpixel", f"exact {window.size[0]} {window.size[1]},address:{new_address}"], check=False)
+
+        yield window, "OK"
