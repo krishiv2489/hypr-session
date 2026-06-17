@@ -13,7 +13,7 @@ description = "Session save and restore for the Hyprland Wayland compositor"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
-    { name = "Krishiv Patel" }
+    { name = "Krishiv Patel", email = "krishiv248@email.com" }
 ]
 keywords = [
     "hyprland",

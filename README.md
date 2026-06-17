@@ -66,7 +66,7 @@ No unnecessary magic.
 
 # Demo
 
-> Add demo GIF here
+
 
 ```text
 $ hypr-session status
@@ -454,6 +454,10 @@ hypr-session restore --profile coding
 
 - [x] Auto-hook installer (`install-hooks`)
 
+- [x] AUR package
+
+- [x] PyPI release
+
 ## v1.x
 
 - [ ] Hyprland groups / tabbed layout support
@@ -461,10 +465,6 @@ hypr-session restore --profile coding
 - [ ] Special workspace restoration
 
 - [ ] Socket event listener for auto-save
-
-- [ ] AUR package
-
-- [ ] PyPI release
 
 ---
 
