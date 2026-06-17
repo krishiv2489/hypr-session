@@ -60,3 +60,38 @@ def get_current_process_ancestors() -> set[int]:
     """Return all PIDs in the chain that launched this script (e.g., zsh -> kitty)."""
     my_pid = os.getpid()
     return get_ancestor_pids(my_pid)
+
+
+def get_exe_path(pid: int) -> str | None:
+    """Resolve the actual binary path from /proc/<pid>/exe."""
+    try:
+        return str(Path(f"/proc/{pid}/exe").resolve())
+    except (FileNotFoundError, PermissionError):
+        return None
+
+
+def get_terminal_cwd(terminal_pid: int) -> str | None:
+    """
+    Find the foreground shell child of a terminal emulator
+    and return its current working directory.
+    """
+    try:
+        # Find child processes of the terminal
+        children = [
+            int(p.name)
+            for p in Path("/proc").iterdir()
+            if p.name.isdigit()
+            and Path(f"/proc/{p.name}/status").exists()
+            and _read_ppid(int(p.name)) == terminal_pid
+        ]
+        
+        if not children:
+            return None
+            
+        # Take the last child (most recently spawned shell/process)
+        child_pid = children[-1]
+        
+        # /proc/<pid>/cwd is a symlink to the actual directory
+        return str(Path(f"/proc/{child_pid}/cwd").resolve())
+    except (PermissionError, FileNotFoundError):
+        return None
