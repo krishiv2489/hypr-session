@@ -1,0 +1,120 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+
+# ---------------------------------------------------------------------------
+# Project metadata
+# ---------------------------------------------------------------------------
+
+[project]
+name = "hypr-session"
+version = "0.1.0"
+description = "Session save and restore for the Hyprland Wayland compositor"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Krishiv", email = "your@email.com" }
+]
+keywords = [
+    "hyprland",
+    "wayland",
+    "session",
+    "session-manager",
+    "linux",
+    "compositor",
+    "tiling",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: X11 Applications",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Desktop Environment",
+    "Topic :: System",
+    "Topic :: Utilities",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/hypr-session"
+Repository = "https://github.com/yourusername/hypr-session"
+Issues = "https://github.com/yourusername/hypr-session/issues"
+
+[project.scripts]
+hypr-session = "hypr_session.cli:main"
+
+
+# ---------------------------------------------------------------------------
+# Package discovery and data files
+# ---------------------------------------------------------------------------
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# Include the bundled class_map.json as package data.
+# Without this, pip install would not include the data/ folder.
+[tool.setuptools.package-data]
+hypr_session = ["data/*.json"]
+
+
+# ---------------------------------------------------------------------------
+# Ruff (linter + formatter — replaces flake8, isort, black)
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # do not perform function calls in default args
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["hypr_session"]
+
+
+# ---------------------------------------------------------------------------
+# Mypy (type checker)
+# ---------------------------------------------------------------------------
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+
+# ---------------------------------------------------------------------------
+# Pytest
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"

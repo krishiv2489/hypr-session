@@ -1,0 +1,74 @@
+{
+  "_comment": "Maps Hyprland window class (lowercase) to launch command. Used as Stage 3 fallback.",
+
+  "code-url-handler":          "code",
+  "code-oss":                  "code-oss",
+  "vscodium":                  "codium",
+  "vscodium-url-handler":      "codium",
+
+  "obsidian":                  "obsidian",
+  "discord":                   "discord",
+  "discord-canary":            "discord-canary",
+  "slack":                     "slack",
+  "teams-for-linux":           "teams-for-linux",
+
+  "org.telegram.desktop":      "telegram-desktop",
+  "telegramdesktop":           "telegram-desktop",
+
+  "spotify":                   "spotify",
+
+  "org.gnome.nautilus":        "nautilus",
+  "org.gnome.files":           "nautilus",
+  "thunar":                    "thunar",
+  "pcmanfm":                   "pcmanfm",
+  "nemo":                      "nemo",
+  "org.kde.dolphin":           "dolphin",
+  "dolphin":                   "dolphin",
+
+  "org.gnome.gedit":           "gedit",
+  "org.gnome.texteditor":      "gnome-text-editor",
+  "org.kde.kate":              "kate",
+  "org.kde.kwrite":            "kwrite",
+  "mousepad":                  "mousepad",
+  "org.xfce.mousepad":         "mousepad",
+
+  "org.gnome.eog":             "eog",
+  "org.kde.gwenview":          "gwenview",
+  "org.gnome.evince":          "evince",
+  "org.kde.okular":            "okular",
+
+  "gimp-2.10":                 "gimp",
+  "gimp-3.0":                  "gimp",
+  "inkscape":                  "inkscape",
+  "org.inkscape.inkscape":     "inkscape",
+  "krita":                     "krita",
+  "org.kde.krita":             "krita",
+  "darktable":                 "darktable",
+
+  "soffice":                   "libreoffice",
+  "libreoffice":               "libreoffice",
+  "libreofficedev-writer":     "libreoffice --writer",
+  "libreofficedev-calc":       "libreoffice --calc",
+  "libreofficedev-impress":    "libreoffice --impress",
+
+  "steam":                     "steam",
+  "heroic":                    "heroic",
+  "com.usebottles.bottles":    "bottles",
+  "lutris":                    "lutris",
+
+  "virt-manager":              "virt-manager",
+  "org.gnome.boxes":           "gnome-boxes",
+  "virtualboxvm":              "virtualbox",
+
+  "thunderbird":               "thunderbird",
+  "org.mozilla.thunderbird":   "thunderbird",
+
+  "org.gnome.calendar":        "gnome-calendar",
+  "org.gnome.contacts":        "gnome-contacts",
+  "org.gnome.clocks":          "gnome-clocks",
+
+  "org.kde.konsole":           "konsole",
+  "org.kde.spectacle":         "spectacle",
+  "org.kde.ark":               "ark",
+  "org.kde.kcalc":             "kcalc"
+}
