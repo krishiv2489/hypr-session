@@ -1,259 +1,128 @@
 """
 cli.py — Command-line interface for hypr-session.
-
-All user-facing commands are defined here. The business logic lives in
-session.py and restore.py. This file only does argument parsing, validation,
-and output formatting.
-
-Commands:
-  save     — save current session (optionally named)
-  restore  — restore a saved session
-  list     — show all saved sessions
-  clear    — delete a saved session
-  pause    — disable auto-save without changing anything
-  resume   — re-enable auto-save
-  status   — show current configuration and session state
-  config   — write the default config file to ~/.config/hypr-session/
 """
 
 from __future__ import annotations
-
 import sys
+import typer
 from pathlib import Path
 from typing import Optional
 
-import typer
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
 
 from .config import (
-    CONFIG_DIR,
-    CONFIG_FILE,
-    DATA_DIR,
-    PAUSE_LOCK,
-    ensure_config_dir,
-    load_config,
+    CONFIG_DIR, CONFIG_FILE, DATA_DIR, PAUSE_LOCK,
+    ensure_config_dir, load_config,
 )
 from .restore import restore_session as _restore
 from .session import (
-    clear_all_sessions,
-    clear_session,
-    list_sessions,
-    load_session,
-    save_session,
+    clear_all_sessions, clear_session, list_sessions,
+    load_session, save_session,
 )
 from .utils import is_hyprland_running
 
-# ---------------------------------------------------------------------------
-# App setup
-# ---------------------------------------------------------------------------
-
 app = typer.Typer(
     name="hypr-session",
-    help=(
-        "Session save and restore for the Hyprland Wayland compositor.\n\n"
-        "Quick start:\n"
-        "  1. Add to hyprland.conf: exec-once = hypr-session restore\n"
-        "  2. Override your exit bind: bind = SUPER SHIFT, Q, exec, "
-        "hypr-session save && hyprctl dispatch exit\n"
-        "  3. That's it."
-    ),
+    help="Session save and restore for the Hyprland Wayland compositor.",
     no_args_is_help=True,
-    pretty_exceptions_enable=False,  # We handle errors ourselves
+    pretty_exceptions_enable=False,
 )
-
-
-# ---------------------------------------------------------------------------
-# Shared helpers
-# ---------------------------------------------------------------------------
-
+console = Console()
 
 def _require_hyprland() -> None:
-    """Exit with a clear error if we're not inside Hyprland."""
     if not is_hyprland_running():
-        typer.echo(
-            "Error: HYPRLAND_INSTANCE_SIGNATURE is not set.\n"
-            "This command must be run inside a Hyprland session.",
-            err=True,
-        )
+        console.print("[bold red]Error:[/bold red] HYPRLAND_INSTANCE_SIGNATURE is not set.\nThis must be run inside a Hyprland session.")
         raise typer.Exit(1)
 
-
 def _check_paused() -> bool:
-    """Print a warning and return True if auto-save is paused."""
     if PAUSE_LOCK.exists():
-        typer.echo(
-            "Note: Session auto-save is paused.\n"
-            "Run 'hypr-session resume' to re-enable.",
-            err=True,
-        )
+        console.print("[bold yellow]Note:[/bold yellow] Session auto-save is paused. Run 'hypr-session resume' to re-enable.")
         return True
     return False
 
-
-# ---------------------------------------------------------------------------
-# save
-# ---------------------------------------------------------------------------
-
-
 @app.command()
 def save(
-    profile: Optional[str] = typer.Option(
-        None,
-        "--profile",
-        "-p",
-        help="Save under a named profile (e.g. 'work', 'gaming').",
-    ),
-    force: bool = typer.Option(
-        False,
-        "--force",
-        "-f",
-        help="Save even if auto-save is currently paused.",
-    ),
+    profile: Optional[str] = typer.Option(None, "--profile", "-p", help="Save under a named profile."),
+    force: bool = typer.Option(False, "--force", "-f", help="Save even if paused."),
 ) -> None:
     """Save the current Hyprland session to disk."""
     _require_hyprland()
-
     if not force and _check_paused():
-        # If paused and not forced, exit silently with 0 so the keybind
-        # sequence (save && exit) still proceeds to exit Hyprland.
         raise typer.Exit(0)
 
     try:
         path, session = save_session(profile)
     except RuntimeError as exc:
-        typer.echo(f"Error: {exc}", err=True)
+        console.print(f"[bold red]Error:[/bold red] {exc}")
         raise typer.Exit(1)
 
     label = profile or "default"
-    count = len(session.windows)
-    typer.echo(f"Saved session '{label}': {count} window(s) → {path}")
-
-
-# ---------------------------------------------------------------------------
-# restore
-# ---------------------------------------------------------------------------
-
+    console.print(f"[bold green]✅ Saved session '{label}':[/bold green] {len(session.windows)} window(s) → {path}")
 
 @app.command()
-def restore(
-    profile: Optional[str] = typer.Option(
-        None,
-        "--profile",
-        "-p",
-        help="Restore a specific named profile.",
-    ),
-) -> None:
+def restore(profile: Optional[str] = typer.Option(None, "--profile", "-p", help="Restore a specific profile.")) -> None:
     """Restore the saved Hyprland session."""
     _require_hyprland()
-
     try:
         restored, failed = _restore(profile)
     except RuntimeError as exc:
-        typer.echo(f"Error: {exc}", err=True)
+        console.print(f"[bold red]Error:[/bold red] {exc}")
         raise typer.Exit(1)
-
-    if failed > 0:
-        raise typer.Exit(1)
-
-
-# ---------------------------------------------------------------------------
-# list
-# ---------------------------------------------------------------------------
-
 
 @app.command(name="list")
 def list_cmd() -> None:
     """List all saved sessions with window counts and timestamps."""
     sessions = list_sessions()
-
     if not sessions:
-        typer.echo("No saved sessions found.")
-        typer.echo(f"Run 'hypr-session save' to create one.")
+        console.print("[bold yellow]No saved sessions found.[/bold yellow]")
         return
 
-    typer.echo(f"{'PROFILE':<20}  {'WINDOWS':>7}  SAVED")
-    typer.echo("-" * 50)
+    table = Table(title="Saved Hyprland Sessions", title_style="bold blue")
+    table.add_column("Profile", style="cyan", no_wrap=True)
+    table.add_column("Windows", justify="right", style="magenta")
+    table.add_column("Saved At", style="green")
 
     for label, path, session in sessions:
         if session:
-            typer.echo(
-                f"{label:<20}  {len(session.windows):>7}  {session.timestamp[:19]}"
-            )
+            table.add_row(label, str(len(session.windows)), session.timestamp[:19])
         else:
-            typer.echo(f"{label:<20}  {'?':>7}  [corrupted — run clear]")
+            table.add_row(label, "[red]?[/red]", "[red]corrupted[/red]")
 
-
-# ---------------------------------------------------------------------------
-# clear
-# ---------------------------------------------------------------------------
-
+    console.print(table)
 
 @app.command()
 def clear(
-    profile: Optional[str] = typer.Option(
-        None,
-        "--profile",
-        "-p",
-        help="Clear a specific named profile. Clears default if omitted.",
-    ),
-    all_profiles: bool = typer.Option(
-        False,
-        "--all",
-        "-a",
-        help="Clear ALL saved sessions.",
-    ),
+    profile: Optional[str] = typer.Option(None, "--profile", "-p", help="Clear a specific profile."),
+    all_profiles: bool = typer.Option(False, "--all", "-a", help="Clear ALL saved sessions."),
 ) -> None:
     """Delete one or all saved sessions."""
     if all_profiles:
         count = clear_all_sessions()
-        typer.echo(f"Cleared {count} session(s).")
+        console.print(f"[bold green]Cleared {count} session(s).[/bold green]")
         return
-
     label = profile or "default"
-    deleted = clear_session(profile)
-    if deleted:
-        typer.echo(f"Session '{label}' cleared.")
+    if clear_session(profile):
+        console.print(f"[bold green]Session '{label}' cleared.[/bold green]")
     else:
-        typer.echo(f"No session found for profile '{label}'.")
-
-
-# ---------------------------------------------------------------------------
-# pause
-# ---------------------------------------------------------------------------
-
+        console.print(f"[bold yellow]No session found for profile '{label}'.[/bold yellow]")
 
 @app.command()
 def pause() -> None:
-    """
-    Disable automatic session saving.
-
-    When paused, 'hypr-session save' exits immediately without saving.
-    This is useful if you want to shut down without saving the current layout
-    (e.g. you're in the middle of something you don't want to restore).
-    """
+    """Disable automatic session saving for this boot."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     PAUSE_LOCK.touch()
-    typer.echo("Auto-save paused. Run 'hypr-session resume' to re-enable.")
-
-
-# ---------------------------------------------------------------------------
-# resume
-# ---------------------------------------------------------------------------
-
+    console.print("[bold yellow]⏸️ Auto-save paused.[/bold yellow] Run 'hypr-session resume' to re-enable.")
 
 @app.command()
 def resume() -> None:
     """Re-enable session saving after a pause."""
     if PAUSE_LOCK.exists():
         PAUSE_LOCK.unlink()
-        typer.echo("Auto-save resumed.")
+        console.print("[bold green]▶️ Auto-save resumed.[/bold green]")
     else:
-        typer.echo("Auto-save was not paused.")
-
-
-# ---------------------------------------------------------------------------
-# status
-# ---------------------------------------------------------------------------
-
+        console.print("Auto-save was not paused.")
 
 @app.command()
 def status() -> None:
@@ -262,73 +131,55 @@ def status() -> None:
     cfg = load_config()
     sessions = list_sessions()
 
-    typer.echo("─── hypr-session status ─────────────────────────────")
-    typer.echo(f"  Auto-save:    {'PAUSED ⚠' if paused else 'active'}")
-    typer.echo(f"  Config file:  {CONFIG_FILE}")
-    typer.echo(f"  Data dir:     {DATA_DIR}")
-    typer.echo("")
-    typer.echo("─── Configuration ───────────────────────────────────")
-    typer.echo(f"  restore_delay_seconds : {cfg.restore_delay_seconds}")
-    typer.echo(f"  window_wait_timeout   : {cfg.window_wait_timeout}")
-    typer.echo(f"  restore_floating      : {cfg.restore_floating}")
-    typer.echo(f"  restore_fullscreen    : {cfg.restore_fullscreen}")
-    typer.echo(f"  restore_cwd           : {cfg.restore_cwd}")
-    typer.echo(f"  ignored classes       : {len(cfg.ignore_classes)} total")
-    if cfg.extra_ignore_classes:
-        typer.echo(f"  user extra ignores    : {sorted(cfg.extra_ignore_classes)}")
-    typer.echo("")
-    typer.echo("─── Saved Sessions ──────────────────────────────────")
-    if not sessions:
-        typer.echo("  (none)")
-    else:
+    # System Status Panel
+    status_text = (
+        f"[bold]Auto-save:[/bold] {'[bold red]PAUSED ⚠[/bold red]' if paused else '[bold green]ACTIVE ✅[/bold green]'}\n"
+        f"[bold]Config:[/bold]    {CONFIG_FILE}\n"
+        f"[bold]Data dir:[/bold]  {DATA_DIR}"
+    )
+    console.print(Panel(status_text, title="System Status", border_style="blue", expand=False))
+
+    # Configuration Panel
+    cfg_text = (
+        f"[cyan]restore_delay_seconds[/cyan] : {cfg.restore_delay_seconds}s\n"
+        f"[cyan]window_wait_timeout[/cyan]   : {cfg.window_wait_timeout}s\n"
+        f"[cyan]restore_floating[/cyan]      : {cfg.restore_floating}\n"
+        f"[cyan]restore_fullscreen[/cyan]    : {cfg.restore_fullscreen}\n"
+        f"[cyan]restore_cwd[/cyan]           : {cfg.restore_cwd}"
+    )
+    console.print(Panel(cfg_text, title="Active Configuration", border_style="magenta", expand=False))
+
+    # Sessions Table
+    if sessions:
+        table = Table(title="Window Layouts", show_header=True, header_style="bold cyan")
+        table.add_column("Workspace", style="dim", width=4)
+        table.add_column("App Class", style="bold green")
+        table.add_column("Command", style="yellow")
+        table.add_column("State", style="magenta")
+
         for label, path, session in sessions:
+            console.print(f"\n[bold blue]Profile:[/bold blue] {label} [dim](Saved: {session.timestamp[:19] if session else 'Unknown'})[/dim]")
             if session:
-                typer.echo(
-                    f"  [{label}]  {len(session.windows)} window(s)  "
-                    f"saved: {session.timestamp[:19]}"
-                )
                 for w in session.windows:
-                    fs_label = (
-                        " [fullscreen]" if w.fullscreen == 2
-                        else " [maximized]" if w.fullscreen == 1
-                        else ""
-                    )
-                    float_label = " [float]" if w.floating else ""
-                    cwd_label = f" cwd={w.cwd}" if w.cwd else ""
-                    typer.echo(
-                        f"       ws{w.workspace_id}  {w.initial_class:<30} "
-                        f"cmd={w.cmd}{float_label}{fs_label}{cwd_label}"
-                    )
-            else:
-                typer.echo(f"  [{label}]  [corrupted]  path={path}")
-    typer.echo("─────────────────────────────────────────────────────")
-
-
-# ---------------------------------------------------------------------------
-# config
-# ---------------------------------------------------------------------------
-
+                    state = []
+                    if w.floating: state.append("float")
+                    if w.fullscreen == 2: state.append("full")
+                    elif w.fullscreen == 1: state.append("max")
+                    if w.cwd: state.append("cwd")
+                    
+                    table.add_row(str(w.workspace_id), w.initial_class, w.cmd, ",".join(state) if state else "-")
+        console.print(table)
+    else:
+        console.print("[dim]No sessions saved yet.[/dim]")
 
 @app.command(name="config")
 def config_cmd() -> None:
-    """
-    Create the config directory and write a default config.toml if none exists.
-
-    Safe to run multiple times — won't overwrite an existing config.
-    """
+    """Create the config directory and write a default config.toml."""
     ensure_config_dir()
     if CONFIG_FILE.exists():
-        typer.echo(f"Config already exists at: {CONFIG_FILE}")
-        typer.echo("Edit it with your preferred text editor.")
+        console.print(f"[bold yellow]Config already exists at:[/bold yellow] {CONFIG_FILE}")
     else:
-        typer.echo(f"Created default config at: {CONFIG_FILE}")
-    typer.echo(f"Data directory: {DATA_DIR}")
-
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
+        console.print(f"[bold green]Created default config at:[/bold green] {CONFIG_FILE}")
 
 def main() -> None:
     app()
