@@ -94,6 +94,7 @@ class HyprSessionConfig:
     restore_floating: bool = True
     restore_fullscreen: bool = True
     restore_cwd: bool = True
+    dbus_placement_delay: float = 0.15
     ignore_classes: set[str] = field(default_factory=lambda: set(DEFAULT_IGNORE_CLASSES))
     ignore_content_types: set[str] = field(default_factory=lambda: set(DEFAULT_CONTENT_TYPE_IGNORE))
 
@@ -112,6 +113,9 @@ restore_fullscreen = true
 
 # Attempt to restore the current working directory of terminal emulators
 restore_cwd = true
+
+# Time to wait (in seconds) for DBus applications to finish mapping before forcing window placement.
+dbus_placement_delay = 0.15
 
 [ignore]
 # Window classes to completely ignore during save
@@ -149,6 +153,7 @@ def load_config() -> HyprSessionConfig:
         cfg.restore_floating = bool(gen.get("restore_floating", cfg.restore_floating))
         cfg.restore_fullscreen = bool(gen.get("restore_fullscreen", cfg.restore_fullscreen))
         cfg.restore_cwd = bool(gen.get("restore_cwd", cfg.restore_cwd))
+        cfg.dbus_placement_delay = float(gen.get("dbus_placement_delay", cfg.dbus_placement_delay))
 
     if "ignore" in data:
         ign = data["ignore"]

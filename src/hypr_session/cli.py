@@ -15,6 +15,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 from rich.table import Table
+from rich.tree import Tree
 
 from .config import (
     CONFIG_FILE,
@@ -78,6 +79,7 @@ def save(
 
     label = profile or "default"
     console.print(f"[bold green]✅ Saved '{label}':[/bold green] {len(session.windows)} window(s) → {path}")
+    notify_user(title="hypr-session", message=f"Session '{label}' saved: {len(session.windows)} window(s)")
 
 @app.command()
 def restore(
@@ -210,7 +212,6 @@ def status() -> None:
     console.print(Panel(status_text, title="System Status", border_style="blue", expand=False))
 
     if sessions:
-        from rich.tree import Tree
         for label, _path, session in sessions:
             if not session:
                 console.print(f"\n[bold blue]Profile:[/bold blue] {label} [red](corrupted)[/red]")
@@ -430,8 +431,6 @@ def diff(profile: str | None = typer.Option(None, "--profile", "-p", help="Profi
 
     if not has_diff:
         console.print("[bold green]✔ Active desktop matches saved session perfectly.[/bold green]")
-        if geom_warning:
-            console.print("[bold yellow]⚠️ Warning: Some floating window geometries differ from the saved profile.[/bold yellow]")
         return
 
     console.print(table)

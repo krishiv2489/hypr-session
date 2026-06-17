@@ -57,8 +57,6 @@ def _get_desktop_search_dirs() -> list[Path]:
 
     return unique_dirs
 
-_DESKTOP_SEARCH_DIRS: list[Path] = _get_desktop_search_dirs()
-
 _PLACEHOLDER_RE = re.compile(r"\s+%[a-zA-Z]")
 
 # Added sandbox and interpreter binaries to force fallback

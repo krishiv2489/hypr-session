@@ -22,7 +22,10 @@ import json
 import os
 import shutil
 import time
+import logging
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 from .config import (
     BACKUPS_DIR,
@@ -109,6 +112,9 @@ def get_current_session_windows(only_active: bool = False) -> list[WindowEntry]:
                             break
             except Exception:
                 pass
+        
+        if active_ws_id is None:
+            log.warning("only_active=True but could not determine active workspace. Saving nothing.")
 
     clients: list[dict] = run_hyprctl("clients")  # type: ignore[assignment]
     windows: list[WindowEntry] = []

@@ -168,7 +168,7 @@ def restore_session(
 
         # 3. FORCE PLACEMENT (DBus Countermeasure)
         # Wait briefly for the window to be fully mapped before moving it
-        time.sleep(0.4)
+        time.sleep(cfg.dbus_placement_delay)
 
         client_info = _get_client_info(new_address)
         if not client_info:
@@ -199,5 +199,5 @@ def restore_session(
         yield window, "OK"
 
         # Inter-launch delay to avoid IPC flooding
-        if i < len(session.windows) - 1:
+        if i < len(filtered_windows) - 1:
             time.sleep(0.3)

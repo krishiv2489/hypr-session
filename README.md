@@ -244,6 +244,33 @@ curl -sSL https://raw.githubusercontent.com/krishiv2489/hypr-session/main/instal
 
 # Usage
 
+## Workspace Profiles
+
+Save a named layout once:
+
+```bash
+hypr-session save --profile study
+```
+
+Restore it with a keybind. Add to `~/.config/hypr/hyprland.conf`:
+
+```conf
+# SUPER + SHIFT + S restores your Study layout instantly
+bind = SUPER SHIFT, S, exec, hypr-session restore --profile study
+```
+
+Create as many profiles as you need:
+
+```bash
+hypr-session save --profile gaming
+hypr-session save --profile coding
+hypr-session save --profile music
+```
+
+Each profile is a separate JSON file and can be exported, shared, or version-controlled.
+
+## Basic Commands
+
 Save current session:
 
 ```bash
