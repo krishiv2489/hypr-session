@@ -43,7 +43,7 @@ pipx ensurepath > /dev/null 2>&1
 
 # 3. Install the package globally
 echo -e "\n\033[1;33m[1/2] Downloading and installing package from PyPI...\033[0m"
-pipx install git+https://github.com/krishiv2489/hypr-session.git --force
+pipx install hypr-session --force
 
 # 4. Run the Python auto-injector using the absolute path or PATH fallback
 echo -e "\n\033[1;33m[2/2] Injecting hooks into hyprland.conf...\033[0m"
