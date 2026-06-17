@@ -78,7 +78,10 @@ def _build_cwd_cmd(window: WindowEntry, cfg: HyprSessionConfig) -> str:
 
 def _build_dispatch_arg(window: WindowEntry, cfg: HyprSessionConfig) -> str:
     """Build the Hyprland dispatch exec argument with window rules."""
-    rules: list[str] = [f"workspace {window.workspace_id} silent"]
+    if window.special_workspace_name:
+        rules: list[str] = [f"workspace {window.special_workspace_name} silent"]
+    else:
+        rules: list[str] = [f"workspace {window.workspace_id} silent"]
 
     if window.pinned:
         rules.append("pin")
@@ -174,11 +177,18 @@ def restore_session(
         if not client_info:
             continue
 
-        if client_info.get("workspace", {}).get("id") != window.workspace_id:
-            subprocess.run([
-                "hyprctl", "dispatch", "movetoworkspacesilent",
-                f"{window.workspace_id},address:{new_address}"
-            ], check=False)
+        if window.special_workspace_name:
+            if client_info.get("workspace", {}).get("name") != window.special_workspace_name:
+                subprocess.run([
+                    "hyprctl", "dispatch", "movetoworkspacesilent",
+                    f"{window.special_workspace_name},address:{new_address}"
+                ], check=False)
+        else:
+            if client_info.get("workspace", {}).get("id") != window.workspace_id:
+                subprocess.run([
+                    "hyprctl", "dispatch", "movetoworkspacesilent",
+                    f"{window.workspace_id},address:{new_address}"
+                ], check=False)
 
         if window.floating and cfg.restore_floating:
             if not client_info.get("floating", False):
@@ -195,9 +205,37 @@ def restore_session(
             if abs(curr_w - target_w) > 5 or abs(curr_h - target_h) > 5:
                 subprocess.run(["hyprctl", "dispatch", "resizewindowpixel", f"exact {target_w} {target_h},address:{new_address}"], check=False)
 
+        if window.special_workspace_name:
+            name_without_prefix = window.special_workspace_name.replace("special:", "", 1)
+            subprocess.run(["hyprctl", "dispatch", "togglespecialworkspace", name_without_prefix], check=False)
+
         log.info("Placed %s at %s on workspace %d", window.initial_class, new_address, window.workspace_id)
+        
+        # Save new_address on the window object temporarily for grouping
+        window._new_address = new_address
+
         yield window, "OK"
 
         # Inter-launch delay to avoid IPC flooding
         if i < len(filtered_windows) - 1:
             time.sleep(0.3)
+
+    # 4. Group Windows
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for w in filtered_windows:
+        if getattr(w, "group_id", None) and getattr(w, "_new_address", None):
+            groups[w.group_id].append(w)
+
+    for group_id, members in groups.items():
+        if len(members) > 1:
+            # Check if all on same workspace
+            workspaces_in_group = {w.workspace_id for w in members}
+            if len(workspaces_in_group) > 1:
+                log.warning("Group %s members ended up on different workspaces: %s. Skipping grouping.", group_id, workspaces_in_group)
+                continue
+
+            first = members[0]
+            subprocess.run(["hyprctl", "dispatch", "togglegroup", f"address:{first._new_address}"], check=False)
+            for subsequent in members[1:]:
+                subprocess.run(["hyprctl", "dispatch", "movewindoworgroup", f"address:{subsequent._new_address} address:{first._new_address}"], check=False)

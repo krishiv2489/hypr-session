@@ -610,6 +610,44 @@ def import_cmd(
         console.print(f"[bold red]Error importing profile:[/bold red] {exc}")
         raise typer.Exit(1) from exc
 
+@app.command()
+def daemon(
+    profile: str | None = typer.Option(None, "--profile", "-p"),
+    debounce: float = typer.Option(30.0, "--debounce", help="Seconds to wait after last change before saving."),
+) -> None:
+    """Run as a background auto-save daemon. Install via systemd for 24/7 operation."""
+    _require_hyprland()
+    from .daemon import run_daemon
+    run_daemon(profile=profile, debounce_seconds=debounce)
+
+@app.command(name="enable-daemon")
+def enable_daemon() -> None:
+    """Install and enable the systemd user service for auto-saving."""
+    import subprocess
+    import shutil
+    
+    # Copy the .service file to ~/.config/systemd/user/
+    service_src = Path(__file__).parent.parent.parent / "assets" / "hypr-session-daemon.service"
+    systemd_user_dir = Path.home() / ".config" / "systemd" / "user"
+    systemd_user_dir.mkdir(parents=True, exist_ok=True)
+    
+    service_dest = systemd_user_dir / "hypr-session-daemon.service"
+    
+    try:
+        shutil.copy2(service_src, service_dest)
+        console.print(f"[green]Copied service file to {service_dest}[/green]")
+    except Exception as e:
+        console.print(f"[bold red]Failed to copy service file:[/bold red] {e}")
+        raise typer.Exit(1)
+        
+    try:
+        subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+        subprocess.run(["systemctl", "--user", "enable", "--now", "hypr-session-daemon"], check=True)
+        console.print("[bold green]Successfully installed and started hypr-session-daemon![/bold green]")
+    except subprocess.CalledProcessError as e:
+        console.print(f"[bold red]Failed to enable/start service:[/bold red] {e}")
+        raise typer.Exit(1)
+
 
 @app.callback()
 def _app_callback(

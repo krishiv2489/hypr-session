@@ -1,0 +1,31 @@
+pkgname=hypr-session-git
+pkgver=1.0.1
+pkgrel=1
+pkgdesc="The missing native session manager for the Hyprland Wayland compositor"
+arch=('any')
+url="https://github.com/krishiv2489/hypr-session"
+license=('MIT')
+depends=('python' 'python-typer' 'python-rich')
+makedepends=('git' 'python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+provides=('hypr-session')
+conflicts=('hypr-session')
+source=("git+https://github.com/krishiv2489/hypr-session.git")
+sha256sums=('SKIP')
+install=PKGBUILD.install
+
+pkgver() {
+    cd "hypr-session"
+    git describe --long --tags --abbrev=7 | sed 's/\([^-]*-g\)/r\1/;s/-/./g' ||
+    printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
+}
+
+build() {
+    cd "hypr-session"
+    python -m build --wheel --no-isolation
+}
+
+package() {
+    cd "hypr-session"
+    python -m installer --destdir="$pkgdir" dist/*.whl
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/hypr-session/LICENSE"
+}

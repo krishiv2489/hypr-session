@@ -185,8 +185,18 @@ def get_current_session_windows(only_active: bool = False) -> list[WindowEntry]:
         size_raw = client.get("size", [800, 600])
         workspace = client.get("workspace", {})
         workspace_id = workspace.get("id", 1)
+        workspace_name = workspace.get("name", "")
+        
+        special_workspace_name = workspace_name if workspace_name.startswith("special:") else None
+
         if active_ws_id is not None and workspace_id != active_ws_id:
             continue
+
+        grouped = client.get("grouped", [])
+        if grouped:
+            group_id = min(grouped + [client.get("address", "0x0")])
+        else:
+            group_id = None
 
         entry = WindowEntry(
             address=client.get("address", "0x0"),
@@ -201,6 +211,8 @@ def get_current_session_windows(only_active: bool = False) -> list[WindowEntry]:
             pinned=client.get("pinned", False),
             focus_history_id=client.get("focusHistoryID", 0),
             cwd=cwd,
+            special_workspace_name=special_workspace_name,
+            group_id=group_id,
         )
         windows.append(entry)
 

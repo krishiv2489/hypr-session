@@ -1,0 +1,11 @@
+post_install() {
+    echo "=========================================================="
+    echo "  hypr-session installed!"
+    echo "  Run 'hypr-session install-hooks' to configure Hyprland"
+    echo "  Run 'hypr-session doctor' for verification"
+    echo "=========================================================="
+}
+
+post_upgrade() {
+    post_install
+}

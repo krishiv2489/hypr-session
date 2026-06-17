@@ -91,6 +91,10 @@ class WindowEntry:
     # Terminal context — populated only for terminal emulator classes
     cwd: str | None = None
 
+    # New states for v3
+    special_workspace_name: str | None = None
+    group_id: str | None = None
+
     # ------------------------------------------------------------------
     # Serialization
     # ------------------------------------------------------------------
@@ -115,6 +119,8 @@ class WindowEntry:
             "pinned": self.pinned,
             "focus_history_id": self.focus_history_id,
             "cwd": self.cwd,
+            "special_workspace_name": self.special_workspace_name,
+            "group_id": self.group_id,
         }
 
     @classmethod
@@ -133,6 +139,8 @@ class WindowEntry:
             pinned=d["pinned"],
             focus_history_id=d["focus_history_id"],
             cwd=d.get("cwd"),
+            special_workspace_name=d.get("special_workspace_name"),
+            group_id=d.get("group_id"),
         )
 
     def __repr__(self) -> str:
@@ -158,7 +166,7 @@ class Session:
     windows: ordered list of WindowEntry; restored in this order.
     """
 
-    version: int = 2
+    version: int = 3
     timestamp: str = field(
         default_factory=lambda: datetime.now().isoformat(timespec="seconds")
     )
@@ -181,9 +189,9 @@ class Session:
         be detected and the user given a clear error instead of a crash.
         """
         version = d.get("version", 1)
-        if version > 2:
+        if version > 3:
             raise ValueError(
-                f"Session file version {version} is newer than this tool supports (2). "
+                f"Session file version {version} is newer than this tool supports (3). "
                 "Please upgrade hypr-session."
             )
         return cls(

@@ -122,7 +122,7 @@ class TestWindowEntrySerialization:
         expected_keys = {
             "address", "initial_class", "cmd", "workspace_id", "monitor",
             "floating", "at", "size", "fullscreen", "pinned",
-            "focus_history_id", "cwd",
+            "focus_history_id", "cwd", "special_workspace_name", "group_id",
         }
         assert set(d.keys()) == expected_keys
 
