@@ -119,6 +119,8 @@ def get_current_session_windows(only_active: bool = False) -> list[WindowEntry]:
     clients: list[dict] = run_hyprctl("clients")  # type: ignore[assignment]
     windows: list[WindowEntry] = []
 
+    terminal_classes_lower = {c.lower() for c in TERMINAL_CLASSES}
+
     for client in clients:
         # ----------------------------------------------------------------
         # Step 1: Identity and basic filters
@@ -172,9 +174,7 @@ def get_current_session_windows(only_active: bool = False) -> list[WindowEntry]:
         # ----------------------------------------------------------------
 
         cwd: str | None = None
-        if cfg.restore_cwd and initial_class.lower() in {
-            c.lower() for c in TERMINAL_CLASSES
-        }:
+        if cfg.restore_cwd and initial_class.lower() in terminal_classes_lower:
             cwd = get_terminal_cwd(pid) if pid else None
 
         # ----------------------------------------------------------------
@@ -254,11 +254,22 @@ def save_session(profile: str | None = None, force_empty: bool = False, only_act
         shutil.copy2(path, backup_path)
 
         # Rotate backups (keep last 10 per profile)
-        backups = sorted(BACKUPS_DIR.glob(f"{path.name}.*.bak"), key=lambda p: p.stat().st_mtime)
-        while len(backups) > 10:
-            backups.pop(0).unlink(missing_ok=True)
+        try:
+            backups = sorted(
+                BACKUPS_DIR.glob(f"{path.name}.*.bak"),
+                key=lambda p: p.stat().st_mtime,
+            )
+            while len(backups) > 10:
+                backups.pop(0).unlink(missing_ok=True)
+        except OSError as e:
+            log.warning("Backup rotation failed (save will continue): %s", e)
 
+    import stat
     path.write_text(json.dumps(session.to_dict(), indent=2))
+    try:
+        path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+    except OSError:
+        log.warning("Could not set permissions on %s", path)
 
     return path, session
 

@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hypr-session"
-version = "1.0.1"
+version = "1.0.2"
 description = "Session save and restore for the Hyprland Wayland compositor"
 readme = "README.md"
 license = { file = "LICENSE" }

@@ -5,17 +5,18 @@ import socket
 import sys
 import threading
 import time
+import typing
 from typing import Optional
 
 from .session import save_session
+from .config import PERMANENT_PAUSE_LOCK, RUNTIME_PAUSE_LOCK
 
 logger = logging.getLogger(__name__)
 
 class HyprlandDaemon:
-    def __init__(self, profile: Optional[str] = None, debounce_seconds: float = 30.0, idle_timeout: Optional[float] = None):
+    def __init__(self, profile: Optional[str] = None, debounce_seconds: float = 30.0):
         self.profile = profile
         self.debounce_seconds = debounce_seconds
-        self.idle_timeout = idle_timeout
         self.running = False
         self.save_timer: Optional[threading.Timer] = None
         self.save_lock = threading.Lock()
@@ -29,6 +30,9 @@ class HyprlandDaemon:
         }
 
     def _do_save(self) -> None:
+        if PERMANENT_PAUSE_LOCK.exists() or RUNTIME_PAUSE_LOCK.exists():
+            logger.info("Auto-save is paused. Skipping save.")
+            return
         with self.save_lock:
             try:
                 logger.info(f"Triggering auto-save for profile: {self.profile or 'default'}")
@@ -50,15 +54,28 @@ class HyprlandDaemon:
         if not signature:
             raise RuntimeError("HYPRLAND_INSTANCE_SIGNATURE is not set.")
         
-        uid = os.getuid()
-        return f"/run/user/{uid}/hypr/{signature}/.socket2.sock"
+        xdg_runtime = os.environ.get("XDG_RUNTIME_DIR")
+        if xdg_runtime:
+            base = xdg_runtime
+        else:
+            base = f"/run/user/{os.getuid()}"
+        return f"{base}/hypr/{signature}/.socket2.sock"
 
-    def handle_signal(self, signum: int, frame: any) -> None:
+    def handle_signal(self, signum: int, frame: 'typing.Any') -> None:
         logger.info(f"Received signal {signum}, performing final save and exiting...")
         self.running = False
         if self.save_timer is not None:
             self.save_timer.cancel()
-        self._do_save()
+        if self.save_lock.acquire(blocking=False):
+            try:
+                try:
+                    save_session(self.profile, force_empty=True)
+                except Exception as e:
+                    logger.error(f"Final save failed: {e}")
+            finally:
+                self.save_lock.release()
+        else:
+            logger.warning("Save lock held during shutdown — skipping final save (in-progress save will complete).")
         sys.exit(0)
 
     def run(self) -> None:
@@ -87,7 +104,7 @@ class HyprlandDaemon:
                                 break
                             
                             parts = line.split(b">>", 1)
-                            if len(parts) > 0:
+                            if parts:
                                 event = parts[0]
                                 if event in self.trigger_events:
                                     logger.debug(f"Received trigger event: {event.decode('utf-8')}")
@@ -110,10 +127,10 @@ class HyprlandDaemon:
             self.save_timer.cancel()
 
 
-def run_daemon(profile: Optional[str] = None, debounce_seconds: float = 30.0, idle_timeout: Optional[float] = None) -> None:
+def run_daemon(profile: Optional[str] = None, debounce_seconds: float = 30.0) -> None:
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    daemon = HyprlandDaemon(profile=profile, debounce_seconds=debounce_seconds, idle_timeout=idle_timeout)
+    daemon = HyprlandDaemon(profile=profile, debounce_seconds=debounce_seconds)
     daemon.run()

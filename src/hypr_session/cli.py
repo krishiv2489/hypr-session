@@ -59,7 +59,7 @@ def _check_paused() -> bool:
         return True
     return False
 
-@app.command()
+@app.command(rich_help_panel="Core Commands")
 def save(
     profile: str | None = typer.Option(None, "--profile", "-p", help="Save under a named profile."),
     force: bool = typer.Option(False, "--force", "-f", help="Save even if paused."),
@@ -81,7 +81,7 @@ def save(
     console.print(f"[bold green]✅ Saved '{label}':[/bold green] {len(session.windows)} window(s) → {path}")
     notify_user(title="hypr-session", message=f"Session '{label}' saved: {len(session.windows)} window(s)")
 
-@app.command()
+@app.command(rich_help_panel="Core Commands")
 def restore(
     profile: str | None = typer.Option(None, "--profile", "-p", help="Restore a specific profile."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be restored without launching apps."),
@@ -143,6 +143,7 @@ def restore(
 
     restored, failed, missing = 0, 0, 0
 
+    cfg = load_config()
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -166,17 +167,22 @@ def restore(
                 progress.console.print(f"[cyan]~[/cyan] {window.initial_class} → ws:{window.workspace_id} (Skipped)")
                 restored += 1
             elif status == "MISSING":
-                progress.console.print(f"[yellow]⚠[/yellow] {window.initial_class} → '{window.cmd.split()[0]}' not found in PATH")
+                cmd_name = window.cmd.split()[0] if window.cmd.strip() else "(empty command)"
+                progress.console.print(f"[yellow]⚠[/yellow] {window.initial_class} → '{cmd_name}' not found in PATH")
                 missing += 1
             elif status == "TIMEOUT":
-                progress.console.print(f"[red]✖[/red] {window.initial_class} → Timed out waiting for window.")
+                progress.console.print(
+                    f"[red]✖[/red] {window.initial_class} → Timed out waiting for window. "
+                    f"[dim](Timeout: {cfg.window_wait_timeout}s. "
+                    f"Increase [general] window_wait_timeout in config.toml if app is slow to start.)[/dim]"
+                )
                 failed += 1
 
             progress.advance(task)
 
     console.print(f"\n[bold]Summary:[/bold] {restored} Restored, {missing} Missing, {failed} Failed.\n")
 
-@app.command(name="list")
+@app.command(name="list", rich_help_panel="Core Commands")
 def list_cmd() -> None:
     """List all saved sessions with window counts and timestamps."""
     sessions = list_sessions()
@@ -197,7 +203,7 @@ def list_cmd() -> None:
 
     console.print(table)
 
-@app.command()
+@app.command(rich_help_panel="Core Commands")
 def status() -> None:
     """Show the current status, configuration, and saved sessions."""
     paused = PERMANENT_PAUSE_LOCK.exists() or RUNTIME_PAUSE_LOCK.exists()
@@ -240,15 +246,28 @@ def status() -> None:
     else:
         console.print("[dim]No sessions saved yet.[/dim]")
 
-@app.command()
-def clear(profile: str | None = typer.Option(None, "--profile", "-p"), all_profiles: bool = typer.Option(False, "--all", "-a")) -> None:
+@app.command(rich_help_panel="Profile Management")
+def clear(
+    profile: str | None = typer.Option(None, "--profile", "-p"),
+    all_profiles: bool = typer.Option(False, "--all", "-a"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
+) -> None:
     """Delete one or all saved sessions."""
     if all_profiles:
+        if not yes:
+            sessions = list_sessions()
+            count = len(sessions)
+            if count == 0:
+                console.print("[bold yellow]No sessions to clear.[/bold yellow]")
+                return
+            console.print(f"[bold red]This will permanently delete {count} session(s).[/bold red]")
+            console.print("[dim]Tip: Backups are kept in the data directory.[/dim]")
+            typer.confirm("Are you sure?", abort=True)
         console.print(f"[bold green]Cleared {clear_all_sessions()} session(s).[/bold green]")
     else:
         console.print(f"[bold green]Session '{profile or 'default'}' cleared.[/bold green]" if clear_session(profile) else "[bold yellow]No session found.[/bold yellow]")
 
-@app.command()
+@app.command(rich_help_panel="Auto-Save & Setup")
 def pause(permanent: bool = typer.Option(False, "--permanent", help="Disable auto-save permanently across reboots.")) -> None:
     """Disable automatic session saving."""
     if permanent:
@@ -260,7 +279,7 @@ def pause(permanent: bool = typer.Option(False, "--permanent", help="Disable aut
         RUNTIME_PAUSE_LOCK.touch()
         console.print("[bold yellow]⏸️ Auto-save paused for this boot.[/bold yellow] Run 'hypr-session resume' to re-enable.")
 
-@app.command()
+@app.command(rich_help_panel="Auto-Save & Setup")
 def resume() -> None:
     """Re-enable session saving after a pause."""
     resumed = False
@@ -276,13 +295,13 @@ def resume() -> None:
     else:
         console.print("Auto-save was not paused.")
 
-@app.command(name="config")
+@app.command(name="config", rich_help_panel="Auto-Save & Setup")
 def config_cmd() -> None:
     """Create the config directory and write a default config.toml."""
     ensure_config_dir()
     console.print(f"[{'yellow' if CONFIG_FILE.exists() else 'green'}]{'Config already exists at:' if CONFIG_FILE.exists() else 'Created config at:'}[/] {CONFIG_FILE}")
 
-@app.command(name="install-hooks")
+@app.command(name="install-hooks", rich_help_panel="Auto-Save & Setup")
 def install_hooks() -> None:
     """Automatically inject startup and shutdown hooks into hyprland.conf."""
     xdg_config_home = os.environ.get("XDG_CONFIG_HOME")
@@ -347,7 +366,7 @@ def install_hooks() -> None:
     else:
         console.print("[bold yellow]⚠ Hooks were already present. No changes made.[/bold yellow]")
 
-@app.command()
+@app.command(rich_help_panel="Core Commands")
 def diff(profile: str | None = typer.Option(None, "--profile", "-p", help="Profile to diff against.")) -> None:
     """Compare currently saved session against active desktop."""
     from collections import Counter
@@ -439,7 +458,7 @@ def diff(profile: str | None = typer.Option(None, "--profile", "-p", help="Profi
         console.print("[bold yellow]⚠️ Warning: Some floating window geometries differ from the saved profile.[/bold yellow]")
 
 
-@app.command()
+@app.command(rich_help_panel="Diagnostics")
 def doctor() -> None:
     """Diagnose system state and verify hypr-session requirements."""
     table = Table(title="System Diagnostics", title_style="bold blue", show_header=False)
@@ -448,11 +467,11 @@ def doctor() -> None:
 
     # Check Hyprland
     hypr_running = is_hyprland_running()
-    table.add_row("Hyprland Environment", "[green]✔ Running[/green]" if hypr_running else "[red]✖ Not Running[/red]")
+    table.add_row("Hyprland Environment", "[green]✔ Running[/green]" if hypr_running else "[red]✖ Not Running[/red] — Start Hyprland or run from within a Hyprland session.")
 
     # Check hyprctl
     hyprctl_path = shutil.which("hyprctl")
-    table.add_row("hyprctl Binary", f"[green]✔ Found ({hyprctl_path})[/green]" if hyprctl_path else "[red]✖ Missing[/red]")
+    table.add_row("hyprctl Binary", f"[green]✔ Found ({hyprctl_path})[/green]" if hyprctl_path else "[red]✖ Missing[/red] — Install Hyprland: https://wiki.hyprland.org/Getting-Started/Installation/")
 
     # Check IPC
     ipc_ok = False
@@ -462,7 +481,7 @@ def doctor() -> None:
             ipc_ok = True
         except Exception:
             pass
-    table.add_row("Hyprland IPC", "[green]✔ Responsive[/green]" if ipc_ok else "[red]✖ Unresponsive[/red]")
+    table.add_row("Hyprland IPC", "[green]✔ Responsive[/green]" if ipc_ok else "[red]✖ Unresponsive[/red] — Try: hyprctl monitors. Check if HYPRLAND_INSTANCE_SIGNATURE is set.")
 
     # Check Data Dir
     try:
@@ -473,7 +492,7 @@ def doctor() -> None:
         data_ok = True
     except Exception:
         data_ok = False
-    table.add_row("Data Directory", f"[green]✔ Writable ({DATA_DIR})[/green]" if data_ok else "[red]✖ Permission Denied[/red]")
+    table.add_row("Data Directory", f"[green]✔ Writable ({DATA_DIR})[/green]" if data_ok else f"[red]✖ Permission Denied[/red] — Fix: mkdir -p {DATA_DIR} && chmod 700 {DATA_DIR}")
 
     console.print(table)
 
@@ -482,6 +501,71 @@ def doctor() -> None:
     else:
         console.print("\n[bold red]Some checks failed. hypr-session may not work correctly.[/bold red]")
 
+
+
+@app.command(name="uninstall-hooks", rich_help_panel="Auto-Save & Setup")
+def uninstall_hooks() -> None:
+    """Remove hypr-session hooks from hyprland.conf."""
+    xdg_config_home = os.environ.get("XDG_CONFIG_HOME")
+    if xdg_config_home:
+        hypr_conf = Path(xdg_config_home) / "hypr/hyprland.conf"
+    else:
+        hypr_conf = Path.home() / ".config/hypr/hyprland.conf"
+
+    if not hypr_conf.exists():
+        console.print(f"[bold red]❌ Could not find {hypr_conf}.[/bold red]")
+        raise typer.Exit(1)
+
+    lines = hypr_conf.read_text(encoding="utf-8").splitlines()
+    new_lines = []
+    removed = 0
+
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if "# --- Auto-generated by hypr-session ---" in line:
+            if i + 1 < len(lines) and "hypr-session restore" in lines[i + 1]:
+                i += 2
+                removed += 1
+                continue
+        if "# [Auto-commented by hypr-session]" in line:
+            if i + 2 < len(lines) and lines[i + 1].startswith("# "):
+                original = lines[i + 1][2:]
+                i += 3
+                new_lines.append(original)
+                removed += 1
+                continue
+        if "hypr-session" in line and "exec-once" in line:
+            removed += 1
+            i += 1
+            continue
+        new_lines.append(line)
+        i += 1
+
+    if removed > 0:
+        hypr_conf.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+        console.print(f"[bold green]✔ Removed {removed} hypr-session hook(s) from hyprland.conf.[/bold green]")
+    else:
+        console.print("[bold yellow]No hypr-session hooks found in hyprland.conf.[/bold yellow]")
+
+
+@app.command(name="disable-daemon", rich_help_panel="Auto-Save & Setup")
+def disable_daemon() -> None:
+    """Stop and disable the systemd user service for auto-saving."""
+    import subprocess
+
+    try:
+        subprocess.run(["systemctl", "--user", "stop", "hypr-session-daemon"], check=True)
+        subprocess.run(["systemctl", "--user", "disable", "hypr-session-daemon"], check=True)
+        console.print("[bold green]Successfully stopped and disabled hypr-session-daemon.[/bold green]")
+    except subprocess.CalledProcessError:
+        console.print("[bold yellow]Service was not running or not installed.[/bold yellow]")
+
+    service_file = Path.home() / ".config" / "systemd" / "user" / "hypr-session-daemon.service"
+    if service_file.exists():
+        service_file.unlink()
+        subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
+        console.print(f"[dim]Removed {service_file}[/dim]")
 
 def _version_callback(value: bool) -> None:
     if value:
@@ -496,7 +580,7 @@ def _resolve_profile_name(name: str) -> str | None:
     return name
 
 
-@app.command(name="rename")
+@app.command(name="rename", rich_help_panel="Profile Management")
 def rename(
     old: str = typer.Argument(..., help="Current name of the profile."),
     new: str = typer.Argument(..., help="New name for the profile."),
@@ -522,7 +606,7 @@ def rename(
         raise typer.Exit(1) from exc
 
 
-@app.command(name="copy")
+@app.command(name="copy", rich_help_panel="Profile Management")
 def copy(
     src: str = typer.Argument(..., help="Source profile name."),
     dest: str = typer.Argument(..., help="Destination profile name."),
@@ -548,7 +632,7 @@ def copy(
         raise typer.Exit(1) from exc
 
 
-@app.command(name="export")
+@app.command(name="export", rich_help_panel="Profile Management")
 def export(
     profile: str = typer.Argument(..., help="Name of the profile to export."),
     file_path: Path = typer.Argument(..., help="Path to the destination JSON file."),
@@ -575,7 +659,7 @@ def export(
         raise typer.Exit(1) from exc
 
 
-@app.command(name="import")
+@app.command(name="import", rich_help_panel="Profile Management")
 def import_cmd(
     file_path: Path = typer.Argument(..., help="Path to the JSON file to import."),
     profile: str = typer.Option(..., "--profile", "-p", help="Name of the target profile."),
@@ -610,7 +694,7 @@ def import_cmd(
         console.print(f"[bold red]Error importing profile:[/bold red] {exc}")
         raise typer.Exit(1) from exc
 
-@app.command()
+@app.command(rich_help_panel="Auto-Save & Setup")
 def daemon(
     profile: str | None = typer.Option(None, "--profile", "-p"),
     debounce: float = typer.Option(30.0, "--debounce", help="Seconds to wait after last change before saving."),
@@ -620,26 +704,45 @@ def daemon(
     from .daemon import run_daemon
     run_daemon(profile=profile, debounce_seconds=debounce)
 
-@app.command(name="enable-daemon")
+@app.command(name="enable-daemon", rich_help_panel="Auto-Save & Setup")
 def enable_daemon() -> None:
     """Install and enable the systemd user service for auto-saving."""
     import subprocess
     import shutil
-    
-    # Copy the .service file to ~/.config/systemd/user/
-    service_src = Path(__file__).parent.parent.parent / "assets" / "hypr-session-daemon.service"
+
+    binary_path_str = shutil.which("hypr-session")
+    if binary_path_str:
+        binary_path = str(Path(binary_path_str).resolve())
+    else:
+        binary_path = "hypr-session"
+
+    service_content = f"""[Unit]
+Description=hypr-session auto-save daemon
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart={binary_path} daemon
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target
+"""
+
     systemd_user_dir = Path.home() / ".config" / "systemd" / "user"
     systemd_user_dir.mkdir(parents=True, exist_ok=True)
-    
+
     service_dest = systemd_user_dir / "hypr-session-daemon.service"
-    
+
     try:
-        shutil.copy2(service_src, service_dest)
+        service_dest.write_text(service_content)
         console.print(f"[green]Copied service file to {service_dest}[/green]")
     except Exception as e:
-        console.print(f"[bold red]Failed to copy service file:[/bold red] {e}")
+        console.print(f"[bold red]Failed to write service file:[/bold red] {e}")
         raise typer.Exit(1)
-        
+
     try:
         subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
         subprocess.run(["systemctl", "--user", "enable", "--now", "hypr-session-daemon"], check=True)

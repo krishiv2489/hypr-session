@@ -157,8 +157,8 @@ def load_config() -> HyprSessionConfig:
     if "ignore" in data:
         ign = data["ignore"]
         if "classes" in ign:
-            cfg.ignore_classes = {c.lower() for c in ign["classes"]}
+            cfg.ignore_classes = set(DEFAULT_IGNORE_CLASSES) | {c.lower() for c in ign["classes"]}
         if "content_types" in ign:
-            cfg.ignore_content_types = {c.lower() for c in ign["content_types"]}
+            cfg.ignore_content_types = set(DEFAULT_CONTENT_TYPE_IGNORE) | {c.lower() for c in ign["content_types"]}
 
     return cfg

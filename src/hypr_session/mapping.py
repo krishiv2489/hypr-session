@@ -91,6 +91,27 @@ def _parse_exec_command(exec_value: str) -> str:
 
     parts = cleaned.split()
     first_part = parts[0]
+
+    if first_part == "env" or (first_part.startswith("/") and Path(first_part).name == "env"):
+        parts = parts[1:]
+        while parts and "=" in parts[0]:
+            parts = parts[1:]
+        if not parts:
+            return ""
+        first_part = parts[0]
+
+    if first_part in ("sh", "bash", "zsh") or (
+        first_part.startswith("/") and Path(first_part).name in ("sh", "bash", "zsh")
+    ):
+        if len(parts) > 1 and parts[1] == "-c":
+            if len(parts) > 2:
+                real_cmd = parts[2]
+                p = Path(real_cmd)
+                if p.is_absolute() and p.exists():
+                    return p.name
+                return real_cmd
+            return ""
+
     is_flatpak = False
     if first_part == "flatpak":
         is_flatpak = True
@@ -175,4 +196,8 @@ def resolve_command(
     if class_lower in bundled_map:
         return bundled_map[class_lower]
 
-    return initial_class
+    import re
+    sanitized = re.sub(r'[^a-zA-Z0-9._-]', '', initial_class)
+    if not sanitized:
+        sanitized = "unknown"
+    return sanitized

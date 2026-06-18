@@ -99,22 +99,20 @@ def get_terminal_cwd(terminal_pid: int) -> str | None:
     and return its current working directory.
     """
     try:
-        # Find child processes of the terminal
-        children = [
-            int(p.name)
-            for p in Path("/proc").iterdir()
-            if p.name.isdigit()
-            and Path(f"/proc/{p.name}/status").exists()
-            and _read_ppid(int(p.name)) == terminal_pid
-        ]
-
-        if not children:
+        children_file = Path(f"/proc/{terminal_pid}/task/{terminal_pid}/children")
+        if children_file.exists():
+            child_pids = [int(x) for x in children_file.read_text().split() if x]
+        else:
+            child_pids = [
+                int(p.name)
+                for p in Path("/proc").iterdir()
+                if p.name.isdigit() and Path(f"/proc/{p.name}/status").exists() and _read_ppid(int(p.name)) == terminal_pid
+            ]
+        
+        if not child_pids:
             return None
 
-        # Take the last child (most recently spawned shell/process)
-        child_pid = children[-1]
-
         # /proc/<pid>/cwd is a symlink to the actual directory
-        return str(Path(f"/proc/{child_pid}/cwd").resolve())
-    except (PermissionError, FileNotFoundError):
+        return str(Path(f"/proc/{child_pids[-1]}/cwd").resolve())
+    except (PermissionError, FileNotFoundError, ValueError):
         return None
