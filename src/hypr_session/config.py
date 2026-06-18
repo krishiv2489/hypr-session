@@ -67,7 +67,6 @@ DEFAULT_IGNORE_CLASSES = {
     "sddm-greeter-qt6",
     "xdg-desktop-portal-hyprland",
     "xdg-desktop-portal",
-    "antigravity",
 }
 
 DEFAULT_CONTENT_TYPE_IGNORE = {
