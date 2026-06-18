@@ -89,6 +89,17 @@ def _build_dispatch_arg(window: WindowEntry, cfg: HyprSessionConfig) -> str:
     if window.floating and cfg.restore_floating:
         x, y = window.at
         w, h = window.size
+        try:
+            monitors: list[dict] = run_hyprctl("monitors")  # type: ignore[assignment]
+            if monitors:
+                max_x = max(m.get("x", 0) + m.get("width", 1920) for m in monitors)
+                max_y = max(m.get("y", 0) + m.get("height", 1080) for m in monitors)
+                min_x = min(m.get("x", 0) for m in monitors)
+                min_y = min(m.get("y", 0) for m in monitors)
+                x = max(min_x, min(x, max_x - 100))
+                y = max(min_y, min(y, max_y - 100))
+        except RuntimeError:
+            pass
         rules.append("float")
         rules.append(f"move {x} {y}")
         rules.append(f"size {w} {h}")
@@ -135,8 +146,16 @@ def restore_session(
     if cfg.restore_delay_seconds > 0 and not dry_run:
         time.sleep(cfg.restore_delay_seconds)
 
+    # Track new addresses for grouping (replaces monkey-patching _new_address)
+    address_map: dict[str, str] = {}  # window.address -> new_address
+
     for i, window in enumerate(filtered_windows):
-        executable = window.cmd.split()[0]
+        parts = window.cmd.split()
+        if not parts:
+            log.warning("Skipping %s: empty command", window.initial_class)
+            yield window, "MISSING"
+            continue
+        executable = parts[0]
         if not shutil.which(executable):
             log.warning("Skipping %s: '%s' not found in PATH", window.initial_class, executable)
             yield window, "MISSING"
@@ -175,6 +194,8 @@ def restore_session(
 
         client_info = _get_client_info(new_address)
         if not client_info:
+            log.warning("Lost track of %s window at %s after launch", window.initial_class, new_address)
+            yield window, "OK"
             continue
 
         if window.special_workspace_name:
@@ -194,8 +215,8 @@ def restore_session(
             if not client_info.get("floating", False):
                 subprocess.run(["hyprctl", "dispatch", "setfloating", f"address:{new_address}"], check=False)
             
-            curr_x, curr_y = client_info.get("at", [0, 0])
-            curr_w, curr_h = client_info.get("size", [0, 0])
+            curr_x, curr_y = client_info.get("at") or [0, 0]
+            curr_w, curr_h = client_info.get("size") or [0, 0]
             target_x, target_y = window.at
             target_w, target_h = window.size
             
@@ -212,7 +233,7 @@ def restore_session(
         log.info("Placed %s at %s on workspace %d", window.initial_class, new_address, window.workspace_id)
         
         # Save new_address on the window object temporarily for grouping
-        window._new_address = new_address
+        address_map[window.address] = new_address
 
         yield window, "OK"
 
@@ -224,7 +245,7 @@ def restore_session(
     from collections import defaultdict
     groups = defaultdict(list)
     for w in filtered_windows:
-        if getattr(w, "group_id", None) and getattr(w, "_new_address", None):
+        if w.group_id and w.address in address_map:
             groups[w.group_id].append(w)
 
     for group_id, members in groups.items():
@@ -236,6 +257,6 @@ def restore_session(
                 continue
 
             first = members[0]
-            subprocess.run(["hyprctl", "dispatch", "togglegroup", f"address:{first._new_address}"], check=False)
+            subprocess.run(["hyprctl", "dispatch", "togglegroup", f"address:{address_map[first.address]}"], check=False)
             for subsequent in members[1:]:
-                subprocess.run(["hyprctl", "dispatch", "movewindoworgroup", f"address:{subsequent._new_address} address:{first._new_address}"], check=False)
+                subprocess.run(["hyprctl", "dispatch", "movewindoworgroup", f"address:{address_map[subsequent.address]} address:{address_map[first.address]}"], check=False)

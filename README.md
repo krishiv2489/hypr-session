@@ -56,9 +56,9 @@ It simply:
 2. Stores your window layout.
 3. Restores everything during your next login.
 
-No background daemon.
+Optional background daemon for automatic saves.
 
-No constant polling.
+Event-driven auto-save (no polling).
 
 No unnecessary magic.
 
@@ -337,7 +337,12 @@ hypr-session pause --permanent
 | `import`            | Import session from JSON         |
 | `doctor`            | Run system diagnostics           |
 | `pause`             | Disable temporary/permanent save |
+| `clear`             | Delete one or all sessions       |
+| `resume`            | Re-enable auto-save              |
+| `config`            | Create default config file       |
+| `daemon`            | Run auto-save background daemon  |
 | `install-hooks`     | Configure Hyprland automatically |
+| `enable-daemon`     | Install systemd auto-save service|
 
 ---
 
@@ -352,7 +357,7 @@ exec-once = hypr-session restore --wait
 Save before exit:
 
 ```conf
-bind = SUPER SHIFT, Q, exec, hypr-session save && hyprctl dispatch exit
+bind = SUPER SHIFT, Q, exec, hypr-session save ; hyprctl dispatch exit
 ```
 
 ---
@@ -487,11 +492,11 @@ hypr-session restore --profile coding
 
 ## v1.x
 
-- [ ] Hyprland groups / tabbed layout support
+- [x] Hyprland groups / tabbed layout support
 
-- [ ] Special workspace restoration
+- [x] Special workspace restoration
 
-- [ ] Socket event listener for auto-save
+- [x] Socket event listener for auto-save (daemon command)
 
 ---
 

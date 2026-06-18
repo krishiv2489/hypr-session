@@ -51,7 +51,7 @@ def test_sigterm_triggers_final_save(mock_exit, mock_save_session):
 @patch("hypr_session.daemon.socket.socket")
 @patch("hypr_session.daemon.HyprlandDaemon._schedule_save")
 def test_mock_socket_connection(mock_schedule, mock_socket_class, mock_getuid, mock_environ_get):
-    mock_environ_get.return_value = "mock_sig"
+    mock_environ_get.side_effect = lambda k, d=None: "mock_sig" if k == "HYPRLAND_INSTANCE_SIGNATURE" else d
     mock_getuid.return_value = 1000
     
     mock_socket = MagicMock()
@@ -92,7 +92,7 @@ def test_mock_socket_connection(mock_schedule, mock_socket_class, mock_getuid, m
 @patch("hypr_session.daemon.socket.socket")
 @patch("hypr_session.daemon.time.sleep")
 def test_retry_logic(mock_sleep, mock_socket_class, mock_getuid, mock_environ_get):
-    mock_environ_get.return_value = "mock_sig"
+    mock_environ_get.side_effect = lambda k, d=None: "mock_sig" if k == "HYPRLAND_INSTANCE_SIGNATURE" else d
     mock_getuid.return_value = 1000
     
     # socket connection fails
